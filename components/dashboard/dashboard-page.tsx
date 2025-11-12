@@ -19,7 +19,6 @@ import {
   QrCode,
   Settings,
   Users,
-  Webcam,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -74,7 +73,6 @@ const latestActivity = [
     loading: "09:05",
     gateOut: "-",
     liters: "7,500 L",
-    cctv: "storage/cctv/B9087TX-20240518-1.jpg",
   },
   {
     sessionId: "LS-23A8",
@@ -86,7 +84,6 @@ const latestActivity = [
     loading: "07:26",
     gateOut: "08:04",
     liters: "8,000 L",
-    cctv: "storage/cctv/B7812QK-20240518-1.jpg",
   },
   {
     sessionId: "LS-23A7",
@@ -98,7 +95,6 @@ const latestActivity = [
     loading: "-",
     gateOut: "-",
     liters: "7,800 L",
-    cctv: "storage/cctv/B9821VD-20240518-1.jpg",
   },
 ];
 
@@ -191,7 +187,6 @@ const sidebarNavigation = [
   { label: "Dashboard", icon: GaugeCircle, href: "#" },
   { label: "Orders", icon: Layers3, href: "#orders" },
   { label: "Load Sessions", icon: ListChecks, href: "#activity" },
-  { label: "CCTV Monitoring", icon: Webcam, href: "#cctv" },
   { label: "Drivers", icon: Users, href: "#drivers" },
   { label: "Settings", icon: Settings, href: "#" },
 ];
@@ -305,7 +300,7 @@ export function DashboardPage() {
             <div className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 p-6 shadow-[0_30px_90px_-60px_rgba(129,108,248,0.65)]" id="activity">
               <div className="flex flex-col gap-1">
                 <h2 className="text-lg font-semibold text-foreground">Latest Load Sessions</h2>
-                <p className="text-sm text-muted-foreground">CCTV verified activities and product movement</p>
+                <p className="text-sm text-muted-foreground">Real-time status updates for bay activities</p>
               </div>
               <div className="mt-6 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
@@ -319,7 +314,6 @@ export function DashboardPage() {
                       <th className="py-3 pr-6 font-medium">Loading</th>
                       <th className="py-3 pr-6 font-medium">Gate Out</th>
                       <th className="py-3 pr-6 font-medium">Volume</th>
-                      <th className="py-3 pr-6 font-medium">CCTV Path</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -333,7 +327,6 @@ export function DashboardPage() {
                         <td className="py-3 pr-6">{item.loading}</td>
                         <td className="py-3 pr-6">{item.gateOut}</td>
                         <td className="py-3 pr-6">{item.liters}</td>
-                        <td className="py-3 pr-6 text-muted-foreground">{item.cctv}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -379,24 +372,20 @@ export function DashboardPage() {
               </div>
 
               <div className="overflow-hidden rounded-3xl border border-border/60 bg-card/80 p-6 shadow-[0_30px_90px_-60px_rgba(129,108,248,0.65)]" id="cctv">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold text-foreground">CCTV Highlights</h2>
-                    <p className="text-sm text-muted-foreground">Quick links to latest plate recognition</p>
-                  </div>
-                  <Webcam className="h-6 w-6 text-primary" />
-                </div>
-                <ul className="mt-5 space-y-4">
-                  {latestActivity.map((item) => (
-                    <li className="flex items-start justify-between gap-3 rounded-2xl border border-border/60 bg-background/40 px-4 py-3" key={`cctv-${item.sessionId}`}>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{item.licensePlate}</p>
-                        <p className="text-xs text-muted-foreground">{item.spNumber} • {item.driverName}</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{item.cctv.split("/").pop()}</span>
-                    </li>
-                  ))}
-                </ul>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Security Monitoring</h2>
+                <p className="text-sm text-muted-foreground">
+                  CCTV integration is not implemented in this prototype build. Footage is managed outside the system.
+                </p>
+              </div>
+              <div className="mt-5 rounded-2xl border border-border/60 bg-background/40 p-4">
+                <p className="text-sm text-muted-foreground">
+                  CCTV feeds are handled by a separate security platform and are not part of this dashboard.
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Please contact the on-site security desk when camera footage or plate verification is required.
+                </p>
+              </div>
               </div>
             </div>
           </section>

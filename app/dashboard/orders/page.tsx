@@ -4,10 +4,10 @@ import { useState, useMemo } from "react";
 import { InfoCard } from "@/components/ui/card";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import AddOrderForm from "@/components/forms/add-order-form";
-import { Layers3 } from "lucide-react";
+import { Layers3, MapPin } from "lucide-react";
 import { Table } from "@/components/ui/table";
-import { StatusManager } from "@/lib/base-component";
-import { useFilterContext, useCombinedFilters } from "@/contexts/filter-context";
+import { StatusManager, ComponentStatus } from "@/lib/base-component";
+import { useCombinedFilters } from "@/contexts/filter-context";
 import { usePathname } from "next/navigation";
 
 interface Order {
@@ -18,6 +18,9 @@ interface Order {
   planned: string;
   schedule: string;
   status: string;
+  destinationName: string;
+  destinationAddress: string;
+  destinationCoords: string;
 }
 
 const initialOrders: Order[] = [
@@ -29,6 +32,9 @@ const initialOrders: Order[] = [
     planned: "8,200 L",
     schedule: "18 May 2024, 13:30",
     status: "SCHEDULED",
+    destinationName: "SPBU 34.17107 - Cipayung",
+    destinationAddress: "Jl. Raya Cipayung No. 14, Jakarta Timur",
+    destinationCoords: "-6.317210, 106.903220",
   },
   {
     spNumber: "SP-240502",
@@ -38,6 +44,9 @@ const initialOrders: Order[] = [
     planned: "7,500 L",
     schedule: "18 May 2024, 08:30",
     status: "LOADING",
+    destinationName: "SPBU 31.17602 - Pondok Gede",
+    destinationAddress: "Jl. Raya Pondok Gede No. 88, Bekasi",
+    destinationCoords: "-6.268540, 106.924110",
   },
   {
     spNumber: "SP-240501",
@@ -47,6 +56,9 @@ const initialOrders: Order[] = [
     planned: "8,000 L",
     schedule: "18 May 2024, 07:00",
     status: "FINISHED",
+    destinationName: "SPBU 34.16712 - Bekasi Timur",
+    destinationAddress: "Jl. Cut Mutia No. 3, Rawalumbu, Bekasi",
+    destinationCoords: "-6.245880, 107.000410",
   },
 ];
 
@@ -131,10 +143,24 @@ export default function OrdersPage() {
     { key: "driverId", label: "Driver ID" },
     { key: "product", label: "Product" },
     { key: "planned", label: "Planned" },
+    {
+      key: "destinationName",
+      label: "Tujuan SPBU",
+      render: (_: string, record: Order) => (
+        <div>
+          <p className="font-semibold text-foreground">{record.destinationName}</p>
+          <p className="text-xs text-muted-foreground">{record.destinationAddress}</p>
+          <span className="inline-flex items-center gap-1 text-[0.65rem] uppercase tracking-[0.3em] text-primary">
+            <MapPin className="h-3 w-3" />
+            {record.destinationCoords}
+          </span>
+        </div>
+      ),
+    },
     { key: "schedule", label: "Scheduled", className: "text-muted-foreground" },
     { key: "status", label: "Status", render: (value: string) => (
       <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-        StatusManager.getStatusBadgeClass(value as any) || "bg-primary/10 text-primary"
+        StatusManager.getStatusBadgeClass(value as ComponentStatus) || "bg-primary/10 text-primary"
       }`}>
         {value}
       </span>
@@ -142,7 +168,7 @@ export default function OrdersPage() {
     { 
       key: "actions", 
       label: "Actions", 
-      render: (_: any, record: Order) => (
+      render: (_value: unknown, record: Order) => (
         <div className="flex items-center gap-2">
           <AddOrderForm 
             onAddOrder={handleAddOrder}
@@ -170,7 +196,7 @@ export default function OrdersPage() {
 
       <InfoCard
         title="Order Management"
-        description={`Track assignments, vehicle pairings, and planned volumes (${filteredOrders.length} of ${orders.length} orders)`}
+        description={`Track assignments, planned volumes, and SPBU destinations (${filteredOrders.length} of ${orders.length} orders)`}
         icon={Layers3}
         actions={<AddOrderForm onAddOrder={handleAddOrder} />}
       >

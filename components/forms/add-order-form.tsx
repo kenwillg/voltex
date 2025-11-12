@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Modal, useModal } from "@/components/ui/modal";
 import { Card } from "@/components/ui/card";
-import { FileText, Truck, User, Fuel, Calendar, Plus, Copy } from "lucide-react";
+import { FileText, Truck, User, Fuel, Calendar, Plus, Copy, MapPin, Navigation } from "lucide-react";
 
 interface Order {
   spNumber: string;
@@ -13,6 +13,9 @@ interface Order {
   planned: string;
   schedule: string;
   status: string;
+  destinationName: string;
+  destinationAddress: string;
+  destinationCoords: string;
 }
 
 interface AddOrderFormProps {
@@ -28,6 +31,9 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
     driverId: existingOrder?.driverId || "",
     product: existingOrder?.product || "",
     planned: existingOrder?.planned || "",
+    destinationName: existingOrder?.destinationName || "",
+    destinationAddress: existingOrder?.destinationAddress || "",
+    destinationCoords: existingOrder?.destinationCoords || "",
     schedule: "",
     status: "SCHEDULED"
   });
@@ -45,31 +51,46 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
         licensePlate: "B 1234 ABC", 
         driverId: "DRV-0145", 
         product: "Pertalite", 
-        planned: "8,500 L" 
+        planned: "8,500 L",
+        destinationName: "SPBU 34.13102 - Lenteng Agung",
+        destinationAddress: "Jl. Lenteng Agung Raya No. 25, Jakarta Selatan",
+        destinationCoords: "-6.336510, 106.820110"
       },
       { 
         licensePlate: "B 5678 DEF", 
         driverId: "DRV-0152", 
         product: "Solar", 
-        planned: "7,200 L" 
+        planned: "7,200 L",
+        destinationName: "SPBU 31.17104 - Cakung",
+        destinationAddress: "Jl. Raya Bekasi Km 24, Cakung, Jakarta Timur",
+        destinationCoords: "-6.192470, 106.939820"
       },
       { 
         licensePlate: "B 9012 GHI", 
         driverId: "DRV-0167", 
         product: "Pertamax", 
-        planned: "9,000 L" 
+        planned: "9,000 L",
+        destinationName: "SPBU 34.16906 - Kalimalang",
+        destinationAddress: "Jl. Inspeksi Saluran Kalimalang, Bekasi",
+        destinationCoords: "-6.250210, 106.941410"
       },
       { 
         licensePlate: "B 3456 JKL", 
         driverId: "DRV-0183", 
         product: "Pertamax Turbo", 
-        planned: "6,800 L" 
+        planned: "6,800 L",
+        destinationName: "SPBU 31.17202 - Bambu Apus",
+        destinationAddress: "Jl. Bambu Apus Raya No. 3, Jakarta Timur",
+        destinationCoords: "-6.301120, 106.894320"
       },
       { 
         licensePlate: "B 7890 MNO", 
         driverId: "DRV-0194", 
         product: "Dexlite", 
-        planned: "8,200 L" 
+        planned: "8,200 L",
+        destinationName: "SPBU 34.40723 - BSD City",
+        destinationAddress: "Jl. BSD Grand Boulevard, Tangerang",
+        destinationCoords: "-6.301710, 106.654980"
       }
     ];
     
@@ -82,6 +103,9 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
       driverId: randomOrder.driverId,
       product: randomOrder.product,
       planned: randomOrder.planned,
+      destinationName: randomOrder.destinationName,
+      destinationAddress: randomOrder.destinationAddress,
+      destinationCoords: randomOrder.destinationCoords,
       schedule: tomorrow.toISOString().slice(0, 16),
       status: "SCHEDULED"
     });
@@ -111,7 +135,10 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
         hour: '2-digit',
         minute: '2-digit'
       }),
-      status: formData.status
+      status: formData.status,
+      destinationName: formData.destinationName,
+      destinationAddress: formData.destinationAddress,
+      destinationCoords: formData.destinationCoords
     };
 
     if (existingOrder && onRepeatOrder) {
@@ -126,6 +153,9 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
       driverId: "",
       product: "",
       planned: "",
+      destinationName: "",
+      destinationAddress: "",
+      destinationCoords: "",
       schedule: "",
       status: "SCHEDULED"
     });
@@ -202,6 +232,65 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
                   required
                 />
               </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="destinationName" className="text-sm font-medium text-foreground">
+                Tujuan SPBU
+              </label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  id="destinationName"
+                  name="destinationName"
+                  value={formData.destinationName}
+                  onChange={handleInputChange}
+                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
+                  placeholder="SPBU 34.17107 - Cipayung"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="destinationCoords" className="text-sm font-medium text-foreground">
+                Koordinat (Lat, Long)
+              </label>
+              <div className="relative">
+                <Navigation className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  id="destinationCoords"
+                  name="destinationCoords"
+                  value={formData.destinationCoords}
+                  onChange={handleInputChange}
+                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
+                  placeholder="-6.317210, 106.903220"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="destinationAddress" className="text-sm font-medium text-foreground">
+              Alamat Lengkap
+            </label>
+            <div className="relative">
+              <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                id="destinationAddress"
+                name="destinationAddress"
+                value={formData.destinationAddress}
+                onChange={handleInputChange}
+                className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
+                placeholder="Jl. Raya Cipayung No. 14, Jakarta Timur"
+                required
+              />
             </div>
           </div>
 

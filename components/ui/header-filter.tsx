@@ -133,39 +133,6 @@ const PAGE_FILTER_CONFIGS: PageFilterConfig = {
       ]
     }
   ],
-  "/dashboard/cctv": [
-    {
-      key: "camera",
-      label: "Camera Location",
-      type: "multiselect",
-      options: [
-        { value: "gate-a", label: "Gate A - Entry", count: 8 },
-        { value: "gate-b", label: "Gate B - Exit", count: 6 },
-        { value: "bay-1", label: "Loading Bay 1", count: 4 },
-        { value: "bay-2", label: "Loading Bay 2", count: 5 }
-      ]
-    },
-    {
-      key: "alertType",
-      label: "Alert Type",
-      type: "select",
-      options: [
-        { value: "plate-detected", label: "Plate Detected", count: 15 },
-        { value: "loading-complete", label: "Loading Complete", count: 8 },
-        { value: "security-alert", label: "Security Alert", count: 2 }
-      ]
-    },
-    {
-      key: "timeRange",
-      label: "Recording Time",
-      type: "select",
-      options: [
-        { value: "live", label: "Live Feed", count: 4 },
-        { value: "last-hour", label: "Last Hour", count: 12 },
-        { value: "today", label: "Today", count: 28 }
-      ]
-    }
-  ],
   "/dashboard/drivers": [
     {
       key: "status",

@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock4,
   Users,
-  Webcam,
 } from "lucide-react";
 
 import { SummaryCard, InfoCard, StatusCard } from "@/components/ui/card";
@@ -53,7 +52,6 @@ const latestActivity = [
     loading: "09:05",
     gateOut: "-",
     liters: "7,500 L",
-    cctv: "storage/cctv/B9087TX-20240518-1.jpg",
   },
   {
     sessionId: "LS-23A8",
@@ -65,7 +63,6 @@ const latestActivity = [
     loading: "07:26",
     gateOut: "08:04",
     liters: "8,000 L",
-    cctv: "storage/cctv/B7812QK-20240518-1.jpg",
   },
   {
     sessionId: "LS-23A7",
@@ -77,7 +74,6 @@ const latestActivity = [
     loading: "-",
     gateOut: "-",
     liters: "7,800 L",
-    cctv: "storage/cctv/B9821VD-20240518-1.jpg",
   },
 ];
 
@@ -246,7 +242,7 @@ export function DashboardPage() {
         {/* Latest Load Sessions */}
         <InfoCard
           title="Latest Load Sessions"
-          description={`CCTV verified activities and product movement (${filteredLatestActivity.length} sessions)`}
+          description={`Live status for bay activities (${filteredLatestActivity.length} sessions)`}
         >
           <ActivityTable data={filteredLatestActivity} />
         </InfoCard>
@@ -284,21 +280,13 @@ export function DashboardPage() {
             </div>
           </InfoCard>
 
-          {/* CCTV Highlights */}
           <InfoCard
-            title="CCTV Highlights"
-            description="Quick links to latest plate recognition"
-            icon={Webcam}
+            title="Security Monitoring"
+            description="CCTV integrations are handled on a separate platform"
           >
-            <div className="space-y-4">
-              {latestActivity.map((item) => (
-                <StatusCard
-                  key={`cctv-${item.sessionId}`}
-                  title={item.licensePlate}
-                  subtitle={`${item.spNumber} • ${item.driverName}`}
-                  status={item.cctv.split("/").pop() || ""}
-                />
-              ))}
+            <div className="rounded-2xl border border-border/60 bg-background/40 p-4 text-sm text-muted-foreground">
+              <p>This dashboard intentionally excludes CCTV feeds, alerts, or plate recognition logs.</p>
+              <p className="mt-2">Coordinate with the terminal security desk whenever footage or camera reviews are required.</p>
             </div>
           </InfoCard>
         </div>

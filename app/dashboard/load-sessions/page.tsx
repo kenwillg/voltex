@@ -18,7 +18,6 @@ const initialActivity = [
     loading: "09:05",
     gateOut: "-",
     liters: "7,500 L",
-    cctv: "storage/cctv/B9087TX-20240518-1.jpg",
   },
   {
     sessionId: "LS-23A8",
@@ -29,7 +28,6 @@ const initialActivity = [
     loading: "07:26",
     gateOut: "08:04",
     liters: "8,000 L",
-    cctv: "storage/cctv/B7812QK-20240518-1.jpg",
   },
   {
     sessionId: "LS-23A7",
@@ -40,7 +38,6 @@ const initialActivity = [
     loading: "-",
     gateOut: "-",
     liters: "7,800 L",
-    cctv: "storage/cctv/B9821VD-20240518-1.jpg",
   },
 ];
 
@@ -104,7 +101,7 @@ export default function LoadSessionsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold text-foreground">Load Sessions</h1>
-        <p className="text-muted-foreground">Monitor fuel loading activities and CCTV verification</p>
+        <p className="text-muted-foreground">Monitor fuel loading activities and manual verification status</p>
       </div>
 
       {/* Dynamic Search */}
@@ -116,7 +113,7 @@ export default function LoadSessionsPage() {
 
       <InfoCard
         title="Load Sessions Activity"
-        description={`CCTV verified activities and product movement (${filteredActivity.length} of ${initialActivity.length} sessions)`}
+        description={`Live bay operations (${filteredActivity.length} of ${initialActivity.length} sessions)`}
         icon={ListChecks}
       >
         <ActivityTable data={filteredActivity} />

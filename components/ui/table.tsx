@@ -200,7 +200,6 @@ interface ActivityTableProps {
     loading: string;
     gateOut: string;
     liters: string;
-    cctv: string;
   }>;
   className?: string;
 }
@@ -221,8 +220,7 @@ export function ActivityTable({ data, className }: ActivityTableProps) {
     { key: "gateIn", label: "Gate In" },
     { key: "loading", label: "Loading" },
     { key: "gateOut", label: "Gate Out" },
-    { key: "liters", label: "Volume" },
-    { key: "cctv", label: "CCTV Path", className: "text-muted-foreground" }
+    { key: "liters", label: "Volume" }
   ];
 
   return <Table columns={columns} data={data} className={className} />;

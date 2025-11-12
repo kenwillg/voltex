@@ -37,10 +37,6 @@ const PAGE_SEARCH_CONFIGS: DynamicSearchConfig = {
     { key: "licensePlate", label: "License Plate", placeholder: "Search by license plate..." },
     { key: "driverName", label: "Driver Name", placeholder: "Search by driver name..." },
   ],
-  "/dashboard/cctv": [
-    { key: "sessionId", label: "Session ID", placeholder: "Search by session ID..." },
-    { key: "licensePlate", label: "License Plate", placeholder: "Search by license plate..." },
-  ],
   "/dashboard": [
     { key: "general", label: "General", placeholder: "Search data..." },
   ]

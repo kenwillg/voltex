@@ -11,7 +11,6 @@ export interface LoadSession {
   loading: string;
   gateOut: string;
   liters: string;
-  cctv: string;
 }
 
 export interface Order {
@@ -74,7 +73,6 @@ export class DataManager {
         loading: "09:05",
         gateOut: "-",
         liters: "7,500 L",
-        cctv: "storage/cctv/B9087TX-20240518-1.jpg",
       },
       {
         sessionId: "LS-23A8",
@@ -86,7 +84,6 @@ export class DataManager {
         loading: "07:26",
         gateOut: "08:04",
         liters: "8,000 L",
-        cctv: "storage/cctv/B7812QK-20240518-1.jpg",
       },
       {
         sessionId: "LS-23A7",
@@ -98,7 +95,6 @@ export class DataManager {
         loading: "-",
         gateOut: "-",
         liters: "7,800 L",
-        cctv: "storage/cctv/B9821VD-20240518-1.jpg",
       },
     ];
   }
