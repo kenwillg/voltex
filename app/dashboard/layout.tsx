@@ -8,7 +8,9 @@ import {
   Users, 
   Settings,
   ScanQrCode,
-  Fuel
+  Fuel,
+  Truck,
+  MapPin
 } from "lucide-react";
 import { Sidebar, useSidebar, MobileMenuToggle } from "@/components/ui/sidebar";
 import { HeaderFilter } from "@/components/ui/header-filter";
@@ -21,6 +23,8 @@ const navigation = [
   { label: "Fuel Bay", icon: Fuel, href: "/dashboard/fuel-bay" },
   { label: "Load Sessions", icon: ListChecks, href: "/dashboard/load-sessions" },
   { label: "Drivers", icon: Users, href: "/dashboard/drivers" },
+  { label: "Vehicles", icon: Truck, href: "/dashboard/vehicles" },
+  { label: "SPBU Tujuan", icon: MapPin, href: "/dashboard/spbu" },
   { label: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
 
