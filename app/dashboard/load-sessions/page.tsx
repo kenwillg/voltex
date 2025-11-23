@@ -1,52 +1,56 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { InfoCard } from "@/components/ui/card";
 import { ActivityTable } from "@/components/ui/table";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import { ListChecks } from "lucide-react";
-import { useFilterContext, useCombinedFilters } from "@/contexts/filter-context";
+import { useCombinedFilters } from "@/contexts/filter-context";
 import { usePathname } from "next/navigation";
 
-const initialActivity = [
-  {
-    sessionId: "LS-23A9",
-    spNumber: "SP-240501",
-    licensePlate: "B 9087 TX",
-    driverName: "Rahmat Santoso",
-    gateIn: "08:42",
-    loading: "09:05",
-    gateOut: "-",
-    liters: "7,500 L",
-  },
-  {
-    sessionId: "LS-23A8",
-    spNumber: "SP-240499",
-    licensePlate: "B 7812 QK",
-    driverName: "Adi Nugroho",
-    gateIn: "07:10",
-    loading: "07:26",
-    gateOut: "08:04",
-    liters: "8,000 L",
-  },
-  {
-    sessionId: "LS-23A7",
-    spNumber: "SP-240498",
-    licensePlate: "B 9821 VD",
-    driverName: "Budi Cahyo",
-    gateIn: "09:14",
-    loading: "-",
-    gateOut: "-",
-    liters: "7,800 L",
-  },
-];
+type ActivityRow = {
+  sessionId: string;
+  spNumber: string;
+  licensePlate: string;
+  driverName: string;
+  gateIn: string;
+  loading: string;
+  gateOut: string;
+  liters: string;
+};
 
 export default function LoadSessionsPage() {
   const combinedFilters = useCombinedFilters();
   const pathname = usePathname();
-  
+
   const [searchTerm, setSearchTerm] = useState("");
   const [searchField, setSearchField] = useState("sessionId");
+  const [activity, setActivity] = useState<ActivityRow[]>([]);
+
+  const formatTime = (value?: string | null) =>
+    value ? new Date(value).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-";
+
+  useEffect(() => {
+    const fetchSessions = async () => {
+      const response = await fetch("/api/load-sessions");
+      const data = await response.json();
+
+      const mapped = data.map((session: any) => ({
+        sessionId: session.id,
+        spNumber: session.order?.spNumber || "-",
+        licensePlate: session.order?.vehicle?.licensePlate || "-",
+        driverName: session.order?.driver?.name || "-",
+        gateIn: formatTime(session.gateInAt),
+        loading: formatTime(session.loadingStartAt),
+        gateOut: formatTime(session.gateOutAt),
+        liters: session.actualLiters ? `${Number(session.actualLiters).toLocaleString("id-ID")} L` : "-",
+      }));
+
+      setActivity(mapped);
+    };
+
+    fetchSessions();
+  }, []);
 
   // Handle search changes
   const handleSearchChange = (term: string, field: string) => {
@@ -56,7 +60,7 @@ export default function LoadSessionsPage() {
 
   // Filtered activity based on both header filters and search
   const filteredActivity = useMemo(() => {
-    let filtered = [...initialActivity];
+    let filtered = [...activity];
     
     // Apply header filters first
     if (combinedFilters.sessionStatus) {
@@ -95,7 +99,7 @@ export default function LoadSessionsPage() {
     }
     
     return filtered;
-  }, [combinedFilters, searchTerm, searchField]);
+  }, [combinedFilters, searchTerm, searchField, activity]);
 
   return (
     <div className="space-y-6">
@@ -113,7 +117,7 @@ export default function LoadSessionsPage() {
 
       <InfoCard
         title="Load Sessions Activity"
-        description={`Live bay operations (${filteredActivity.length} of ${initialActivity.length} sessions)`}
+        description={`Live bay operations (${filteredActivity.length} of ${activity.length} sessions)`}
         icon={ListChecks}
       >
         <ActivityTable data={filteredActivity} />

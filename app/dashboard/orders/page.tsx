@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { InfoCard } from "@/components/ui/card";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import AddOrderForm from "@/components/forms/add-order-form";
@@ -14,6 +14,8 @@ interface Order {
   spNumber: string;
   licensePlate: string;
   driverId: string;
+  driverDbId?: string;
+  vehicleId?: string;
   product: string;
   planned: string;
   schedule: string;
@@ -23,59 +25,6 @@ interface Order {
   destinationCoords: string;
 }
 
-const initialOrders: Order[] = [
-  {
-    spNumber: "SP-240503",
-    licensePlate: "B 7261 JP",
-    driverId: "DRV-0142",
-    product: "Pertalite",
-    planned: "8,200 L",
-    schedule: "18 May 2024, 13:30",
-    status: "SCHEDULED",
-    destinationName: "SPBU 34.17107 - Cipayung",
-    destinationAddress: "Jl. Raya Cipayung No. 14, Jakarta Timur",
-    destinationCoords: "-6.317210, 106.903220",
-  },
-  {
-    spNumber: "SP-240502",
-    licensePlate: "B 9087 TX",
-    driverId: "DRV-0128",
-    product: "Solar",
-    planned: "7,500 L",
-    schedule: "18 May 2024, 08:30",
-    status: "LOADING",
-    destinationName: "SPBU 31.17602 - Pondok Gede",
-    destinationAddress: "Jl. Raya Pondok Gede No. 88, Bekasi",
-    destinationCoords: "-6.268540, 106.924110",
-  },
-  {
-    spNumber: "SP-240501",
-    licensePlate: "B 7812 QK",
-    driverId: "DRV-0105",
-    product: "Pertamax",
-    planned: "8,000 L",
-    schedule: "18 May 2024, 07:00",
-    status: "FINISHED",
-    destinationName: "SPBU 34.16712 - Bekasi Timur",
-    destinationAddress: "Jl. Cut Mutia No. 3, Rawalumbu, Bekasi",
-    destinationCoords: "-6.245880, 107.000410",
-  },
-];
-
-const driverOptions = [
-  { value: "DRV-0142", label: "Satria Ramdhan" },
-  { value: "DRV-0128", label: "Rahmat Santoso" },
-  { value: "DRV-0105", label: "Adi Nugroho" },
-  { value: "DRV-0152", label: "Siti Nurhaliza" },
-];
-
-const vehicleOptions = [
-  { value: "B 7261 JP", label: "B 7261 JP • Hino 260" },
-  { value: "B 9087 TX", label: "B 9087 TX • Isuzu Giga" },
-  { value: "B 7812 QK", label: "B 7812 QK • Mercedes Axor" },
-  { value: "B 5678 DEF", label: "B 5678 DEF • Hino 500" },
-];
-
 const spbuOptions = [
   { label: "SPBU 34.17107 - Cipayung", value: "SPBU 34.17107", meta: { address: "Jl. Raya Cipayung No. 14, Jakarta Timur", coords: "-6.317210, 106.903220" } },
   { label: "SPBU 31.17602 - Pondok Gede", value: "SPBU 31.17602", meta: { address: "Jl. Raya Pondok Gede No. 88, Bekasi", coords: "-6.268540, 106.924110" } },
@@ -84,12 +33,71 @@ const spbuOptions = [
 ];
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [driverOptions, setDriverOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
+  const [vehicleOptions, setVehicleOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
   const combinedFilters = useCombinedFilters();
   const pathname = usePathname();
-  
+
   const [searchTerm, setSearchTerm] = useState("");
   const [searchField, setSearchField] = useState("spNumber");
+
+  const mapOrderFromApi = (order: any): Order => {
+    const schedule = new Date(order.scheduledAt);
+    return {
+      spNumber: order.spNumber,
+      licensePlate: order.vehicle?.licensePlate || order.vehicleId,
+      vehicleId: order.vehicle?.id || order.vehicleId,
+      driverId: order.driver?.driverCode || order.driverId,
+      driverDbId: order.driver?.id || order.driverId,
+      product: order.product,
+      planned: `${Number(order.plannedLiters || 0).toLocaleString("id-ID")} L`,
+      schedule: schedule.toLocaleString("id-ID", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      status: order.status || order.loadSessions?.[0]?.status || "SCHEDULED",
+      destinationName: order.destination?.destinationName || "-",
+      destinationAddress: order.destination?.destinationAddress || "-",
+      destinationCoords: order.destination?.destinationCoords || "-",
+    };
+  };
+
+  useEffect(() => {
+    const load = async () => {
+      const [driversRes, vehiclesRes, ordersRes] = await Promise.all([
+        fetch("/api/drivers"),
+        fetch("/api/vehicles"),
+        fetch("/api/orders"),
+      ]);
+
+      const driverData = await driversRes.json();
+      setDriverOptions(
+        driverData.map((driver: any) => ({
+          value: driver.id,
+          label: driver.name,
+          meta: { driverCode: driver.driverCode || driver.id },
+        }))
+      );
+
+      const vehicleData = await vehiclesRes.json();
+      setVehicleOptions(
+        vehicleData.map((vehicle: any) => ({
+          value: vehicle.id,
+          label: `${vehicle.licensePlate}${vehicle.vehicleType ? ` • ${vehicle.vehicleType}` : ""}`,
+          meta: { licensePlate: vehicle.licensePlate },
+        }))
+      );
+
+      const orderData = await ordersRes.json();
+      setOrders(orderData.map(mapOrderFromApi));
+    };
+
+    load();
+  }, []);
 
   // Handle search changes
   const handleSearchChange = (term: string, field: string) => {
@@ -145,16 +153,39 @@ export default function OrdersPage() {
     return filtered;
   }, [orders, combinedFilters, searchTerm, searchField]);
 
-  const handleAddOrder = (newOrder: Order) => {
-    setOrders(prev => [newOrder, ...prev]);
+  const refreshOrders = async () => {
+    const res = await fetch("/api/orders");
+    const data = await res.json();
+    setOrders(data.map(mapOrderFromApi));
   };
 
-  const handleRepeatOrder = (repeatedOrder: Order) => {
-    setOrders(prev => [repeatedOrder, ...prev]);
+  const handleAddOrder = async (newOrder: Order) => {
+    const vehicleId = newOrder.vehicleId || vehicleOptions.find((vehicle) => vehicle.meta?.licensePlate === newOrder.licensePlate)?.value;
+    const driverId = newOrder.driverDbId || driverOptions.find((driver) => driver.meta?.driverCode === newOrder.driverId)?.value;
+
+    await fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...newOrder,
+        vehicleId,
+        driverId,
+        plannedLiters: newOrder.planned,
+        scheduledAt: newOrder.schedule,
+      }),
+    });
+
+    await refreshOrders();
   };
 
-  const findDriver = (id: string) => driverOptions.find((driver) => driver.value === id);
-  const findVehicle = (plate: string) => vehicleOptions.find((vehicle) => vehicle.value === plate);
+  const handleRepeatOrder = async (repeatedOrder: Order) => {
+    await handleAddOrder(repeatedOrder);
+  };
+
+  const findDriver = (id: string) =>
+    driverOptions.find((driver) => driver.meta?.driverCode === id || driver.value === id);
+  const findVehicle = (plate: string) =>
+    vehicleOptions.find((vehicle) => vehicle.meta?.licensePlate === plate || vehicle.value === plate);
 
   // Enhanced columns with repeat order action
   const orderColumns = [

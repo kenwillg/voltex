@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   CalendarCheck2,
@@ -15,168 +15,186 @@ import { SummaryCard, InfoCard, StatusCard } from "@/components/ui/card";
 import { ActivityTable, OrdersTable, DriversTable } from "@/components/ui/table";
 import { StatusManager, ComponentStatus } from "@/lib/base-component";
 import { useCombinedFilters } from "@/contexts/filter-context";
-
-// Data dari dashboard yang sudah ada
-const monthlyTracker = [
-  {
-    month: "May 2024",
-    orders: 62,
-    finished: 58,
-    plannedLiters: 148_200,
-    actualLiters: 141_860,
-  },
-  {
-    month: "Apr 2024",
-    orders: 57,
-    finished: 53,
-    plannedLiters: 136_450,
-    actualLiters: 129_200,
-  },
-  {
-    month: "Mar 2024",
-    orders: 61,
-    finished: 55,
-    plannedLiters: 142_780,
-    actualLiters: 134_640,
-  },
-];
-
-const latestActivity = [
-  {
-    sessionId: "LS-23A9",
-    spNumber: "SP-240501",
-    licensePlate: "B 9087 TX",
-    driverName: "Rahmat Santoso",
-    status: "LOADING" as ComponentStatus,
-    gateIn: "08:42",
-    loading: "09:05",
-    gateOut: "-",
-    liters: "7,500 L",
-  },
-  {
-    sessionId: "LS-23A8",
-    spNumber: "SP-240499",
-    licensePlate: "B 7812 QK",
-    driverName: "Adi Nugroho",
-    status: "FINISHED" as ComponentStatus,
-    gateIn: "07:10",
-    loading: "07:26",
-    gateOut: "08:04",
-    liters: "8,000 L",
-  },
-  {
-    sessionId: "LS-23A7",
-    spNumber: "SP-240498",
-    licensePlate: "B 9821 VD",
-    driverName: "Budi Cahyo",
-    status: "GATE_IN" as ComponentStatus,
-    gateIn: "09:14",
-    loading: "-",
-    gateOut: "-",
-    liters: "7,800 L",
-  },
-];
-
-const orderList = [
-  {
-    spNumber: "SP-240503",
-    licensePlate: "B 7261 JP",
-    driverId: "DRV-0142",
-    product: "Pertalite",
-    planned: "8,200 L",
-    schedule: "18 May 2024, 13:30",
-    status: "SCHEDULED",
-  },
-  {
-    spNumber: "SP-240502",
-    licensePlate: "B 9087 TX",
-    driverId: "DRV-0128",
-    product: "Solar",
-    planned: "7,500 L",
-    schedule: "18 May 2024, 08:30",
-    status: "LOADING",
-  },
-  {
-    spNumber: "SP-240501",
-    licensePlate: "B 7812 QK",
-    driverId: "DRV-0105",
-    product: "Pertamax",
-    planned: "8,000 L",
-    schedule: "18 May 2024, 07:00",
-    status: "FINISHED",
-  },
-];
-
-const driverDirectory = [
-  {
-    id: "DRV-0142",
-    name: "Satria Ramdhan",
-    phone: "+62 811-4456-782",
-    license: "SIM B1 19023451",
-    isActive: true,
-  },
-  {
-    id: "DRV-0128",
-    name: "Rahmat Santoso",
-    phone: "+62 812-8890-123",
-    license: "SIM B1 18098732",
-    isActive: true,
-  },
-  {
-    id: "DRV-0094",
-    name: "Didik Hartono",
-    phone: "+62 813-7756-909",
-    license: "SIM B2 17098123",
-    isActive: false,
-  },
-];
-
-const summaryCards = [
-  {
-    title: "Monthly Tracker",
-    description: "Orders vs actual completion",
-    value: "58 / 62",
-    sublabel: "Finished in May",
-    icon: BarChart3,
-  },
-  {
-    title: "Scheduled Today",
-    description: "Total SP on calendar",
-    value: "12",
-    sublabel: "SPs across 3 shifts",
-    icon: CalendarClock,
-  },
-  {
-    title: "Finished Today",
-    description: "Sessions completed",
-    value: "9",
-    sublabel: "18.6 KL delivered",
-    icon: CheckCircle2,
-  },
-  {
-    title: "Active Drivers",
-    description: "Available crew",
-    value: "42",
-    sublabel: "3 on hold",
-    icon: Users,
-  },
-];
-
 export function DashboardPage() {
   const combinedFilters = useCombinedFilters();
-  
-  const monthlyProgress = useMemo(
-    () =>
-      monthlyTracker.map((item) => ({
-        ...item,
-        completion: Math.min(100, Math.round((item.actualLiters / item.plannedLiters) * 100)),
-      })),
-    [],
-  );
+
+  const [loadSessions, setLoadSessions] = useState<Array<{
+    sessionId: string;
+    spNumber: string;
+    licensePlate: string;
+    driverName: string;
+    status: ComponentStatus;
+    gateIn: string;
+    loading: string;
+    gateOut: string;
+    liters: string;
+  }>>([]);
+
+  const [orderList, setOrderList] = useState<Array<{
+    spNumber: string;
+    licensePlate: string;
+    driverId: string;
+    product: string;
+    planned: string;
+    schedule: string;
+    status: string;
+    scheduleDate?: Date;
+  }>>([]);
+
+  const [driverDirectory, setDriverDirectory] = useState<Array<{
+    id: string;
+    name: string;
+    phone: string;
+    license: string;
+    isActive: boolean;
+  }>>([]);
+
+  useEffect(() => {
+    const formatTime = (value?: string | null) =>
+      value ? new Date(value).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-";
+
+    const loadData = async () => {
+      const [sessionsRes, ordersRes, driversRes] = await Promise.all([
+        fetch("/api/load-sessions"),
+        fetch("/api/orders"),
+        fetch("/api/drivers"),
+      ]);
+
+      const sessionsData = await sessionsRes.json();
+      setLoadSessions(
+        sessionsData.map((session: any) => ({
+          sessionId: session.id,
+          spNumber: session.order?.spNumber || "-",
+          licensePlate: session.order?.vehicle?.licensePlate || "-",
+          driverName: session.order?.driver?.name || "-",
+          status: session.status as ComponentStatus,
+          gateIn: formatTime(session.gateInAt),
+          loading: formatTime(session.loadingStartAt),
+          gateOut: formatTime(session.gateOutAt),
+          liters: session.actualLiters ? `${Number(session.actualLiters).toLocaleString("id-ID")} L` : "-",
+        }))
+      );
+
+      const ordersData = await ordersRes.json();
+      setOrderList(
+        ordersData.map((order: any) => {
+          const scheduleDate = new Date(order.scheduledAt);
+          return {
+            spNumber: order.spNumber,
+            licensePlate: order.vehicle?.licensePlate || order.vehicleId,
+            driverId: order.driver?.driverCode || order.driverId,
+            product: order.product,
+            planned: `${Number(order.plannedLiters || 0).toLocaleString("id-ID")} L`,
+            schedule: scheduleDate.toLocaleString("id-ID", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            status: order.status || order.loadSessions?.[0]?.status || "SCHEDULED",
+            scheduleDate,
+          };
+        })
+      );
+
+      const driversData = await driversRes.json();
+      setDriverDirectory(
+        driversData.map((driver: any) => ({
+          id: driver.driverCode || driver.id,
+          name: driver.name,
+          phone: driver.phone || "-",
+          license: driver.licenseId || "-",
+          isActive: driver.isActive,
+        }))
+      );
+    };
+
+    loadData();
+  }, []);
+
+  const monthlyProgress = useMemo(() => {
+    const grouped = new Map<string, { orders: number; finished: number; plannedLiters: number; actualLiters: number }>();
+
+    orderList.forEach((order) => {
+      const key = order.scheduleDate?.toLocaleString("en-US", { month: "short", year: "numeric" }) || "Unknown";
+      const current = grouped.get(key) || { orders: 0, finished: 0, plannedLiters: 0, actualLiters: 0 };
+      grouped.set(key, {
+        ...current,
+        orders: current.orders + 1,
+        plannedLiters: current.plannedLiters + Number(order.planned.replace(/[^0-9.]/g, "")),
+      });
+    });
+
+    loadSessions.forEach((session) => {
+      const key = session.gateIn !== "-" ? new Date().toLocaleString("en-US", { month: "short", year: "numeric" }) : "Unknown";
+      const current = grouped.get(key) || { orders: 0, finished: 0, plannedLiters: 0, actualLiters: 0 };
+      grouped.set(key, {
+        ...current,
+        finished: session.status === "FINISHED" ? current.finished + 1 : current.finished,
+        actualLiters: current.actualLiters + Number(session.liters.replace(/[^0-9.]/g, "")) || current.actualLiters,
+      });
+    });
+
+    return Array.from(grouped.entries())
+      .map(([month, stats]) => ({
+        month,
+        ...stats,
+        completion: stats.plannedLiters
+          ? Math.min(100, Math.round((stats.actualLiters / stats.plannedLiters) * 100))
+          : 0,
+      }))
+      .slice(0, 3);
+  }, [orderList, loadSessions]);
+
+  const isSameDay = (dateA?: Date, dateB?: Date) => {
+    if (!dateA || !dateB) return false;
+    return (
+      dateA.getFullYear() === dateB.getFullYear() &&
+      dateA.getMonth() === dateB.getMonth() &&
+      dateA.getDate() === dateB.getDate()
+    );
+  };
+
+  const today = new Date();
+  const scheduledToday = orderList.filter((order) => isSameDay(order.scheduleDate, today)).length;
+  const finishedToday = loadSessions.filter((session) => session.status === "FINISHED").length;
+  const monthlySnapshot = monthlyProgress[0];
+
+  const summaryCards = [
+    {
+      title: "Monthly Tracker",
+      description: "Orders vs actual completion",
+      value: `${monthlySnapshot?.finished ?? 0} / ${monthlySnapshot?.orders ?? 0}`,
+      sublabel: monthlySnapshot ? `Finished in ${monthlySnapshot.month}` : "No data",
+      icon: BarChart3,
+    },
+    {
+      title: "Scheduled Today",
+      description: "Total SP on calendar",
+      value: `${scheduledToday}`,
+      sublabel: "SPs across shifts",
+      icon: CalendarClock,
+    },
+    {
+      title: "Finished Sessions",
+      description: "Sessions completed",
+      value: `${finishedToday}`,
+      sublabel: "Based on load sessions",
+      icon: CheckCircle2,
+    },
+    {
+      title: "Active Drivers",
+      description: "Available crew",
+      value: `${driverDirectory.filter((driver) => driver.isActive).length}`,
+      sublabel: `${driverDirectory.length} total drivers`,
+      icon: Users,
+    },
+  ];
 
   // Filter data based on header filters
   const filteredLatestActivity = useMemo(() => {
-    let filtered = [...latestActivity];
+    let filtered = [...loadSessions];
     
     if (combinedFilters.status) {
       if (Array.isArray(combinedFilters.status)) {
@@ -184,7 +202,7 @@ export function DashboardPage() {
           combinedFilters.status.includes(item.status.toLowerCase())
         );
       } else {
-        filtered = filtered.filter(item => 
+        filtered = filtered.filter(item =>
           item.status.toLowerCase() === combinedFilters.status
         );
       }
@@ -205,7 +223,7 @@ export function DashboardPage() {
     }
     
     return filtered;
-  }, [combinedFilters]);
+  }, [combinedFilters, loadSessions]);
 
   // Get status flow dari StatusManager
   const statusFlow = StatusManager.getAllStatusConfigs()

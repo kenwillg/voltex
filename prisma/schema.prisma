@@ -4,121 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model bays {
-  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name          String          @unique
-  is_active     Boolean         @default(true)
-  load_sessions load_sessions[]
-}
+// -- Enums --
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model cctv_captures {
-  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  load_session_id   String        @db.Uuid
-  captured_at       DateTime      @default(now()) @db.Timestamptz(6)
-  storage_path      String
-  license_plate_ocr String?
-  camera_id         String?
-  load_sessions     load_sessions @relation(fields: [load_session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([load_session_id, captured_at], map: "idx_cctv_session_time")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model drivers {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  driver_code String?  @unique
-  name        String
-  phone       String?
-  license_id  String?  @unique
-  is_active   Boolean  @default(true)
-  created_at  DateTime @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime @default(now()) @db.Timestamptz(6)
-  orders      orders[]
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model load_sessions {
-  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  order_id         String          @db.Uuid
-  status           load_status     @default(SCHEDULED)
-  gate_in_at       DateTime?       @db.Timestamptz(6)
-  queued_at        DateTime?       @db.Timestamptz(6)
-  loading_start_at DateTime?       @db.Timestamptz(6)
-  loading_end_at   DateTime?       @db.Timestamptz(6)
-  gate_out_at      DateTime?       @db.Timestamptz(6)
-  finished_at      DateTime?       @db.Timestamptz(6)
-  bay_id           String?         @db.Uuid
-  shift_id         String?         @db.Uuid
-  actual_liters    Decimal?        @db.Decimal(12, 2)
-  cancel_reason    String?
-  hold_reason      String?
-  reject_reason    String?
-  created_at       DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime        @default(now()) @db.Timestamptz(6)
-  cctv_captures    cctv_captures[]
-  bays             bays?           @relation(fields: [bay_id], references: [id], onDelete: NoAction)
-  orders           orders          @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  shifts           shifts?         @relation(fields: [shift_id], references: [id], onDelete: NoAction)
-
-  @@index([finished_at], map: "idx_load_sessions_finished_at")
-  @@index([order_id], map: "idx_load_sessions_order")
-  @@index([status], map: "idx_load_sessions_status")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model orders {
-  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sp_number      String          @unique
-  vehicle_id     String          @db.Uuid
-  driver_id      String          @db.Uuid
-  product        String          @default("FUEL")
-  planned_liters Decimal         @db.Decimal(12, 2)
-  scheduled_at   DateTime        @db.Timestamptz(6)
-  qr_code_value  String?         @unique
-  qr_expires_at  DateTime?       @db.Timestamptz(6)
-  notes          String?
-  created_by     String?         @db.Uuid
-  created_at     DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime        @default(now()) @db.Timestamptz(6)
-  load_sessions  load_sessions[]
-  drivers        drivers         @relation(fields: [driver_id], references: [id], onDelete: NoAction)
-  vehicles       vehicles        @relation(fields: [vehicle_id], references: [id], onDelete: NoAction)
-
-  @@index([driver_id], map: "idx_orders_driver")
-  @@index([scheduled_at], map: "idx_orders_scheduled_at")
-  @@index([vehicle_id], map: "idx_orders_vehicle")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model shifts {
-  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name          String          @unique
-  start_time    DateTime        @db.Time(6)
-  end_time      DateTime        @db.Time(6)
-  is_active     Boolean         @default(true)
-  load_sessions load_sessions[]
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model vehicles {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  license_plate String   @unique
-  vehicle_type  String?
-  owner_name    String?
-  is_active     Boolean  @default(true)
-  created_at    DateTime @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime @default(now()) @db.Timestamptz(6)
-  orders        orders[]
-
-  @@index([license_plate], map: "idx_vehicles_plate")
-}
-
-enum load_status {
+enum LoadStatus {
   SCHEDULED
   GATE_IN
   QUEUED
@@ -128,4 +20,151 @@ enum load_status {
   CANCELLED
   REJECTED
   ON_HOLD
+  
+  // Mapping to database enum name if needed, but let's stick to standard naming
+  @@map("load_status")
+}
+
+// -- Models --
+
+model Bay {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String        @unique
+  isActive      Boolean       @default(true) @map("is_active")
+  
+  loadSessions  LoadSession[]
+
+  @@map("bays")
+}
+
+model Driver {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  driverCode  String?  @unique @map("driver_code") // e.g. DRV-0142
+  name        String
+  phone       String?
+  licenseId   String?  @unique @map("license_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  orders      Order[]
+
+  @@map("drivers")
+}
+
+model Vehicle {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  licensePlate String   @unique @map("license_plate")
+  vehicleType  String?  @map("vehicle_type")
+  ownerName    String?  @map("owner_name")
+  isActive     Boolean  @default(true) @map("is_active")
+  
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  orders       Order[]
+
+  @@map("vehicles")
+  @@index([licensePlate], map: "idx_vehicles_plate")
+}
+
+model Order {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  spNumber      String    @unique @map("sp_number") // e.g. SP-240503
+  
+  // Foreign Keys
+  vehicleId     String    @map("vehicle_id") @db.Uuid
+  driverId      String    @map("driver_id") @db.Uuid
+  createdBy     String?   @map("created_by") @db.Uuid
+  
+  // Details
+  product       String    @default("FUEL")
+  plannedLiters Decimal   @map("planned_liters") @db.Decimal(12, 2)
+  scheduledAt   DateTime  @map("scheduled_at") @db.Timestamptz(6)
+  notes         String?
+  
+  // QR logic
+  qrCodeValue   String?   @unique @map("qr_code_value")
+  qrExpiresAt   DateTime? @map("qr_expires_at") @db.Timestamptz(6)
+
+  // Timestamps
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  // Relationships
+  vehicle       Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: NoAction)
+  driver        Driver        @relation(fields: [driverId], references: [id], onDelete: NoAction)
+  loadSessions  LoadSession[]
+
+  @@map("orders")
+  @@index([driverId], map: "idx_orders_driver")
+  @@index([scheduledAt], map: "idx_orders_scheduled_at")
+  @@index([vehicleId], map: "idx_orders_vehicle")
+}
+
+model LoadSession {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String     @map("order_id") @db.Uuid
+  
+  status         LoadStatus @default(SCHEDULED)
+  
+  // Timestamps for the lifecycle
+  gateInAt       DateTime?  @map("gate_in_at") @db.Timestamptz(6)
+  queuedAt       DateTime?  @map("queued_at") @db.Timestamptz(6)
+  loadingStartAt DateTime?  @map("loading_start_at") @db.Timestamptz(6)
+  loadingEndAt   DateTime?  @map("loading_end_at") @db.Timestamptz(6)
+  gateOutAt      DateTime?  @map("gate_out_at") @db.Timestamptz(6)
+  finishedAt     DateTime?  @map("finished_at") @db.Timestamptz(6)
+  
+  // Operations
+  bayId          String?    @map("bay_id") @db.Uuid
+  shiftId        String?    @map("shift_id") @db.Uuid
+  actualLiters   Decimal?   @map("actual_liters") @db.Decimal(12, 2)
+  
+  // Issues
+  cancelReason   String?    @map("cancel_reason")
+  holdReason     String?    @map("hold_reason")
+  rejectReason   String?    @map("reject_reason")
+
+  // Metadata
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  // Relationships
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  bay            Bay?          @relation(fields: [bayId], references: [id], onDelete: NoAction)
+  shift          Shift?        @relation(fields: [shiftId], references: [id], onDelete: NoAction)
+  cctvCaptures   CctvCapture[]
+
+  @@map("load_sessions")
+  @@index([finishedAt], map: "idx_load_sessions_finished_at")
+  @@index([orderId], map: "idx_load_sessions_order")
+  @@index([status], map: "idx_load_sessions_status")
+}
+
+model Shift {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String        @unique
+  startTime    DateTime      @map("start_time") @db.Time(6)
+  endTime      DateTime      @map("end_time") @db.Time(6)
+  isActive     Boolean       @default(true) @map("is_active")
+  
+  loadSessions LoadSession[]
+
+  @@map("shifts")
+}
+
+model CctvCapture {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  loadSessionId   String      @map("load_session_id") @db.Uuid
+  capturedAt      DateTime    @default(now()) @map("captured_at") @db.Timestamptz(6)
+  storagePath     String      @map("storage_path")
+  licensePlateOcr String?     @map("license_plate_ocr")
+  cameraId        String?     @map("camera_id")
+  
+  loadSession     LoadSession @relation(fields: [loadSessionId], references: [id], onDelete: Cascade)
+
+  @@map("cctv_captures")
+  @@index([loadSessionId, capturedAt], map: "idx_cctv_session_time")
 }
