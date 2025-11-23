@@ -34,6 +34,8 @@ export function QrScanner({
   const [isScanning, setIsScanning] = useState(false);
   const [nativeCameraActive, setNativeCameraActive] = useState(false);
   const [flaskBridgeActive, setFlaskBridgeActive] = useState(false);
+  const [qrStepApproved, setQrStepApproved] = useState(false);
+  const [ocrStepApproved, setOcrStepApproved] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const nativeVideoRef = useRef<HTMLVideoElement | null>(null);
   const flaskVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -66,6 +68,8 @@ export function QrScanner({
     }
     setNativeCameraActive(false);
     setFlaskBridgeActive(false);
+    setQrStepApproved(false);
+    setOcrStepApproved(false);
   }, [nativeStream]);
 
   const handleOpenNativeCamera = async () => {
@@ -130,6 +134,41 @@ export function QrScanner({
     ? StatusManager.getStatusBadgeClass(scanResult.order.status)
     : "";
 
+  const handleApproveQrStep = () => {
+    if (!nativeCameraActive) {
+      setCameraError("Open the native camera before approving the QR step.");
+      return;
+    }
+    setQrStepApproved(true);
+  };
+
+  const handleApproveOcrStep = () => {
+    if (!qrStepApproved) {
+      setCameraError("Approve the QR step first before validating the license plate.");
+      return;
+    }
+    if (!flaskBridgeActive) {
+      setCameraError(
+        "Mirror the camera feed through the Flask OCR bridge before approving the plate scan.",
+      );
+      return;
+    }
+    setOcrStepApproved(true);
+  };
+
+  useEffect(() => {
+    if (!nativeCameraActive) {
+      setQrStepApproved(false);
+      setOcrStepApproved(false);
+    }
+  }, [nativeCameraActive]);
+
+  useEffect(() => {
+    if (!flaskBridgeActive) {
+      setOcrStepApproved(false);
+    }
+  }, [flaskBridgeActive]);
+
   useEffect(() => {
     return () => {
       stopNativeCamera();
@@ -179,6 +218,50 @@ export function QrScanner({
                   Stop camera
                 </button>
               )}
+            </div>
+          </div>
+          <div className="mt-3 space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {qrStepApproved ? (
+                  <CheckCircle className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-amber-500" />
+                )}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Step 1</p>
+                  <p className="text-sm font-semibold text-foreground">Approve QR payload</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleApproveQrStep}
+                disabled={qrStepApproved || !nativeCameraActive}
+                className="rounded-2xl border border-border/70 bg-background/70 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {qrStepApproved ? "Approved" : "Approve QR"}
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {ocrStepApproved ? (
+                  <CheckCircle className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-amber-500" />
+                )}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Step 2</p>
+                  <p className="text-sm font-semibold text-foreground">Approve OCR plate</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleApproveOcrStep}
+                disabled={ocrStepApproved || !nativeCameraActive || !qrStepApproved || !flaskBridgeActive}
+                className="rounded-2xl border border-border/70 bg-background/70 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-foreground transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {ocrStepApproved ? "Approved" : "Approve Plate"}
+              </button>
             </div>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">

@@ -27,6 +27,7 @@ export async function PUT(req: Request, { params }: Params) {
       name: payload.name,
       address: payload.address,
       coords: payload.coords,
+      updatedAt: new Date(),
       isActive: payload.isActive ?? true,
     },
   });
