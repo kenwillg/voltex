@@ -37,6 +37,16 @@ const PAGE_SEARCH_CONFIGS: DynamicSearchConfig = {
     { key: "licensePlate", label: "License Plate", placeholder: "Search by license plate..." },
     { key: "driverName", label: "Driver Name", placeholder: "Search by driver name..." },
   ],
+  "/dashboard/vehicles": [
+    { key: "licensePlate", label: "License Plate", placeholder: "Cari nomor polisi..." },
+    { key: "type", label: "Unit Type", placeholder: "Cari tipe unit..." },
+    { key: "owner", label: "Owner", placeholder: "Cari pemilik armada..." },
+  ],
+  "/dashboard/spbu": [
+    { key: "name", label: "Nama SPBU", placeholder: "Cari nama SPBU..." },
+    { key: "code", label: "Kode", placeholder: "Cari kode..." },
+    { key: "address", label: "Alamat", placeholder: "Cari alamat..." },
+  ],
   "/dashboard": [
     { key: "general", label: "General", placeholder: "Search data..." },
   ]

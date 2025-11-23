@@ -18,22 +18,31 @@ interface Order {
   destinationCoords: string;
 }
 
+interface SelectOption<T = string> {
+  value: T;
+  label: string;
+  meta?: Record<string, string>;
+}
+
 interface AddOrderFormProps {
   onAddOrder: (order: Order) => void;
   onRepeatOrder?: (order: Order) => void;
   existingOrder?: Order | null;
+  driverOptions: SelectOption[];
+  vehicleOptions: SelectOption[];
+  spbuOptions: Array<SelectOption & { meta?: { address?: string; coords?: string } }>;
 }
 
-function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderFormProps) {
+function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions, vehicleOptions, spbuOptions }: AddOrderFormProps) {
   const { isOpen, open, close } = useModal();
   const [formData, setFormData] = useState({
-    licensePlate: existingOrder?.licensePlate || "",
-    driverId: existingOrder?.driverId || "",
+    licensePlate: existingOrder?.licensePlate || vehicleOptions[0]?.value || "",
+    driverId: existingOrder?.driverId || driverOptions[0]?.value || "",
     product: existingOrder?.product || "",
     planned: existingOrder?.planned || "",
-    destinationName: existingOrder?.destinationName || "",
-    destinationAddress: existingOrder?.destinationAddress || "",
-    destinationCoords: existingOrder?.destinationCoords || "",
+    destinationName: existingOrder?.destinationName || spbuOptions[0]?.label || "",
+    destinationAddress: existingOrder?.destinationAddress || spbuOptions[0]?.meta?.address || "",
+    destinationCoords: existingOrder?.destinationCoords || spbuOptions[0]?.meta?.coords || "",
     schedule: "",
     status: "SCHEDULED"
   });
@@ -46,66 +55,23 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
   };
 
   const generateDummyData = () => {
-    const dummyOrders = [
-      { 
-        licensePlate: "B 1234 ABC", 
-        driverId: "DRV-0145", 
-        product: "Pertalite", 
-        planned: "8,500 L",
-        destinationName: "SPBU 34.13102 - Lenteng Agung",
-        destinationAddress: "Jl. Lenteng Agung Raya No. 25, Jakarta Selatan",
-        destinationCoords: "-6.336510, 106.820110"
-      },
-      { 
-        licensePlate: "B 5678 DEF", 
-        driverId: "DRV-0152", 
-        product: "Solar", 
-        planned: "7,200 L",
-        destinationName: "SPBU 31.17104 - Cakung",
-        destinationAddress: "Jl. Raya Bekasi Km 24, Cakung, Jakarta Timur",
-        destinationCoords: "-6.192470, 106.939820"
-      },
-      { 
-        licensePlate: "B 9012 GHI", 
-        driverId: "DRV-0167", 
-        product: "Pertamax", 
-        planned: "9,000 L",
-        destinationName: "SPBU 34.16906 - Kalimalang",
-        destinationAddress: "Jl. Inspeksi Saluran Kalimalang, Bekasi",
-        destinationCoords: "-6.250210, 106.941410"
-      },
-      { 
-        licensePlate: "B 3456 JKL", 
-        driverId: "DRV-0183", 
-        product: "Pertamax Turbo", 
-        planned: "6,800 L",
-        destinationName: "SPBU 31.17202 - Bambu Apus",
-        destinationAddress: "Jl. Bambu Apus Raya No. 3, Jakarta Timur",
-        destinationCoords: "-6.301120, 106.894320"
-      },
-      { 
-        licensePlate: "B 7890 MNO", 
-        driverId: "DRV-0194", 
-        product: "Dexlite", 
-        planned: "8,200 L",
-        destinationName: "SPBU 34.40723 - BSD City",
-        destinationAddress: "Jl. BSD Grand Boulevard, Tangerang",
-        destinationCoords: "-6.301710, 106.654980"
-      }
-    ];
-    
-    const randomOrder = dummyOrders[Math.floor(Math.random() * dummyOrders.length)];
+    const randomDriver = driverOptions[Math.floor(Math.random() * driverOptions.length)];
+    const randomVehicle = vehicleOptions[Math.floor(Math.random() * vehicleOptions.length)];
+    const randomSpbu = spbuOptions[Math.floor(Math.random() * spbuOptions.length)];
+    const products = ["Pertalite", "Pertamax", "Pertamax Turbo", "Solar", "Dexlite"];
+    const randomProduct = products[Math.floor(Math.random() * products.length)];
+
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     
     setFormData({
-      licensePlate: randomOrder.licensePlate,
-      driverId: randomOrder.driverId,
-      product: randomOrder.product,
-      planned: randomOrder.planned,
-      destinationName: randomOrder.destinationName,
-      destinationAddress: randomOrder.destinationAddress,
-      destinationCoords: randomOrder.destinationCoords,
+      licensePlate: randomVehicle?.value || "",
+      driverId: randomDriver?.value || "",
+      product: randomProduct,
+      planned: `${(7000 + Math.floor(Math.random() * 2000)).toLocaleString("id-ID")} L`,
+      destinationName: randomSpbu?.label || "",
+      destinationAddress: randomSpbu?.meta?.address || "",
+      destinationCoords: randomSpbu?.meta?.coords || "",
       schedule: tomorrow.toISOString().slice(0, 16),
       status: "SCHEDULED"
     });
@@ -113,6 +79,17 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    if (name === "destinationName") {
+      const spbu = spbuOptions.find((option) => option.label === value);
+      setFormData((prev) => ({
+        ...prev,
+        destinationName: value,
+        destinationAddress: spbu?.meta?.address || "",
+        destinationCoords: spbu?.meta?.coords || ""
+      }));
+      return;
+    }
+
     setFormData(prev => ({
       ...prev,
       [name]: value
@@ -149,13 +126,13 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
     
     // Reset form
     setFormData({
-      licensePlate: "",
-      driverId: "",
+      licensePlate: vehicleOptions[0]?.value || "",
+      driverId: driverOptions[0]?.value || "",
       product: "",
       planned: "",
-      destinationName: "",
-      destinationAddress: "",
-      destinationCoords: "",
+      destinationName: spbuOptions[0]?.label || "",
+      destinationAddress: spbuOptions[0]?.meta?.address || "",
+      destinationCoords: spbuOptions[0]?.meta?.coords || "",
       schedule: "",
       status: "SCHEDULED"
     });
@@ -178,6 +155,9 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
               driverId: existingOrder.driverId,
               product: existingOrder.product,
               planned: existingOrder.planned,
+              destinationName: existingOrder.destinationName,
+              destinationAddress: existingOrder.destinationAddress,
+              destinationCoords: existingOrder.destinationCoords,
               schedule: "",
               status: "SCHEDULED"
             });
@@ -198,39 +178,47 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <label htmlFor="licensePlate" className="text-sm font-medium text-foreground">
-                License Plate
+                Pilih Kendaraan
               </label>
               <div className="relative">
                 <Truck className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
+                <select
                   id="licensePlate"
                   name="licensePlate"
                   value={formData.licensePlate}
                   onChange={handleInputChange}
-                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
-                  placeholder="B 1234 ABC"
+                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   required
-                />
+                >
+                  {vehicleOptions.map((vehicle) => (
+                    <option key={vehicle.value} value={vehicle.value}>
+                      {vehicle.label} ({vehicle.value})
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
             <div className="space-y-2">
               <label htmlFor="driverId" className="text-sm font-medium text-foreground">
-                Driver ID
+                Pilih Driver
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
+                <select
                   id="driverId"
                   name="driverId"
                   value={formData.driverId}
                   onChange={handleInputChange}
-                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
-                  placeholder="DRV-0XXX"
+                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   required
-                />
+                >
+                  {driverOptions.map((driver) => (
+                    <option key={driver.value} value={driver.value}>
+                      {driver.label} ({driver.value})
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
@@ -242,16 +230,20 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder }: AddOrderForm
               </label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
+                <select
                   id="destinationName"
                   name="destinationName"
                   value={formData.destinationName}
                   onChange={handleInputChange}
-                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
-                  placeholder="SPBU 34.17107 - Cipayung"
+                  className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   required
-                />
+                >
+                  {spbuOptions.map((option) => (
+                    <option key={option.value ?? option.label} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 

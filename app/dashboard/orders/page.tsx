@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { InfoCard } from "@/components/ui/card";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import AddOrderForm from "@/components/forms/add-order-form";
-import { Layers3, MapPin } from "lucide-react";
+import { Layers3, MapPin, User } from "lucide-react";
 import { Table } from "@/components/ui/table";
 import { StatusManager, ComponentStatus } from "@/lib/base-component";
 import { useCombinedFilters } from "@/contexts/filter-context";
@@ -60,6 +60,27 @@ const initialOrders: Order[] = [
     destinationAddress: "Jl. Cut Mutia No. 3, Rawalumbu, Bekasi",
     destinationCoords: "-6.245880, 107.000410",
   },
+];
+
+const driverOptions = [
+  { value: "DRV-0142", label: "Satria Ramdhan" },
+  { value: "DRV-0128", label: "Rahmat Santoso" },
+  { value: "DRV-0105", label: "Adi Nugroho" },
+  { value: "DRV-0152", label: "Siti Nurhaliza" },
+];
+
+const vehicleOptions = [
+  { value: "B 7261 JP", label: "B 7261 JP • Hino 260" },
+  { value: "B 9087 TX", label: "B 9087 TX • Isuzu Giga" },
+  { value: "B 7812 QK", label: "B 7812 QK • Mercedes Axor" },
+  { value: "B 5678 DEF", label: "B 5678 DEF • Hino 500" },
+];
+
+const spbuOptions = [
+  { label: "SPBU 34.17107 - Cipayung", value: "SPBU 34.17107", meta: { address: "Jl. Raya Cipayung No. 14, Jakarta Timur", coords: "-6.317210, 106.903220" } },
+  { label: "SPBU 31.17602 - Pondok Gede", value: "SPBU 31.17602", meta: { address: "Jl. Raya Pondok Gede No. 88, Bekasi", coords: "-6.268540, 106.924110" } },
+  { label: "SPBU 34.16712 - Bekasi Timur", value: "SPBU 34.16712", meta: { address: "Jl. Cut Mutia No. 3, Rawalumbu, Bekasi", coords: "-6.245880, 107.000410" } },
+  { label: "SPBU 34.16906 - Kalimalang", value: "SPBU 34.16906", meta: { address: "Jl. Inspeksi Saluran Kalimalang, Bekasi", coords: "-6.250210, 106.941410" } },
 ];
 
 export default function OrdersPage() {
@@ -132,15 +153,35 @@ export default function OrdersPage() {
     setOrders(prev => [repeatedOrder, ...prev]);
   };
 
+  const findDriver = (id: string) => driverOptions.find((driver) => driver.value === id);
+  const findVehicle = (plate: string) => vehicleOptions.find((vehicle) => vehicle.value === plate);
+
   // Enhanced columns with repeat order action
   const orderColumns = [
     { key: "spNumber", label: "SP Number", render: (value: string) => (
       <span className="font-semibold text-foreground">{value}</span>
     )},
-    { key: "licensePlate", label: "License Plate", render: (value: string) => (
-      <span className="text-primary">{value}</span>
-    )},
-    { key: "driverId", label: "Driver ID" },
+    { key: "licensePlate", label: "Kendaraan", render: (value: string) => {
+      const vehicle = findVehicle(value);
+      return (
+        <div>
+          <p className="font-semibold text-primary">{value}</p>
+          <p className="text-xs text-muted-foreground">{vehicle?.label?.split("•")[1]?.trim() ?? "Unit"}</p>
+        </div>
+      );
+    }},
+    { key: "driverId", label: "Driver", render: (value: string) => {
+      const driver = findDriver(value);
+      return (
+        <div className="flex items-center gap-2">
+          <User className="h-3.5 w-3.5 text-primary" />
+          <div>
+            <p className="font-semibold text-foreground">{driver?.label ?? value}</p>
+            <p className="text-xs text-muted-foreground">{value}</p>
+          </div>
+        </div>
+      );
+    }},
     { key: "product", label: "Product" },
     { key: "planned", label: "Planned" },
     {
@@ -174,6 +215,9 @@ export default function OrdersPage() {
             onAddOrder={handleAddOrder}
             onRepeatOrder={handleRepeatOrder}
             existingOrder={record}
+            driverOptions={driverOptions}
+            vehicleOptions={vehicleOptions}
+            spbuOptions={spbuOptions}
           />
         </div>
       )
@@ -198,7 +242,14 @@ export default function OrdersPage() {
         title="Order Management"
         description={`Track assignments, planned volumes, and SPBU destinations (${filteredOrders.length} of ${orders.length} orders)`}
         icon={Layers3}
-        actions={<AddOrderForm onAddOrder={handleAddOrder} />}
+        actions={
+          <AddOrderForm
+            onAddOrder={handleAddOrder}
+            driverOptions={driverOptions}
+            vehicleOptions={vehicleOptions}
+            spbuOptions={spbuOptions}
+          />
+        }
       >
         <Table columns={orderColumns} data={filteredOrders} />
       </InfoCard>
