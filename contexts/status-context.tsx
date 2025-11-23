@@ -102,12 +102,12 @@ const initialSessions: DriverSession[] = [
     plannedVolume: "7,500 L",
     status: "LOADING",
     gate: {
-      entry: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      entry: "2024-05-20T07:15:00.000Z",
     },
     fuel: {
       slot: "Bay 1B",
       pinVerified: true,
-      startedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+      startedAt: "2024-05-20T07:15:00.000Z",
     },
     qr: {},
   },
@@ -123,13 +123,13 @@ const initialSessions: DriverSession[] = [
     plannedVolume: "8,000 L",
     status: "GATE_OUT",
     gate: {
-      entry: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      exit: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      entry: "2024-05-20T05:00:00.000Z",
+      exit: "2024-05-20T07:00:00.000Z",
     },
     fuel: {
       slot: "Bay 2C",
-      startedAt: new Date(Date.now() - 2.5 * 60 * 60 * 1000).toISOString(),
-      finishedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+      startedAt: "2024-05-20T05:30:00.000Z",
+      finishedAt: "2024-05-20T06:30:00.000Z",
     },
     qr: {},
   },
