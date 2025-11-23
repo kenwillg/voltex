@@ -9,6 +9,8 @@ interface Order {
   spNumber: string;
   licensePlate: string;
   driverId: string;
+  driverDbId?: string;
+  vehicleId?: string;
   product: string;
   planned: string;
   schedule: string;
@@ -25,8 +27,8 @@ interface SelectOption<T = string> {
 }
 
 interface AddOrderFormProps {
-  onAddOrder: (order: Order) => void;
-  onRepeatOrder?: (order: Order) => void;
+  onAddOrder: (order: Order) => Promise<void>;
+  onRepeatOrder?: (order: Order) => Promise<void>;
   existingOrder?: Order | null;
   driverOptions: SelectOption[];
   vehicleOptions: SelectOption[];
@@ -36,8 +38,10 @@ interface AddOrderFormProps {
 function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions, vehicleOptions, spbuOptions }: AddOrderFormProps) {
   const { isOpen, open, close } = useModal();
   const [formData, setFormData] = useState({
-    licensePlate: existingOrder?.licensePlate || vehicleOptions[0]?.value || "",
-    driverId: existingOrder?.driverId || driverOptions[0]?.value || "",
+    licensePlate: existingOrder?.licensePlate || vehicleOptions[0]?.meta?.licensePlate || "",
+    driverId: existingOrder?.driverId || driverOptions[0]?.meta?.driverCode || driverOptions[0]?.value || "",
+    driverDbId: existingOrder?.driverDbId || (driverOptions[0]?.value as string) || "",
+    vehicleId: existingOrder?.vehicleId || (vehicleOptions[0]?.value as string) || "",
     product: existingOrder?.product || "",
     planned: existingOrder?.planned || "",
     destinationName: existingOrder?.destinationName || spbuOptions[0]?.label || "",
@@ -65,8 +69,10 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
     tomorrow.setDate(tomorrow.getDate() + 1);
     
     setFormData({
-      licensePlate: randomVehicle?.value || "",
-      driverId: randomDriver?.value || "",
+      licensePlate: randomVehicle?.meta?.licensePlate || randomVehicle?.label || "",
+      vehicleId: (randomVehicle?.value as string) || "",
+      driverDbId: (randomDriver?.value as string) || "",
+      driverId: randomDriver?.meta?.driverCode || randomDriver?.label || "",
       product: randomProduct,
       planned: `${(7000 + Math.floor(Math.random() * 2000)).toLocaleString("id-ID")} L`,
       destinationName: randomSpbu?.label || "",
@@ -90,28 +96,44 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       return;
     }
 
+    if (name === "driverId") {
+      const selected = driverOptions.find((driver) => String(driver.value) === value);
+      setFormData((prev) => ({
+        ...prev,
+        driverId: selected?.meta?.driverCode || selected?.label || value,
+        driverDbId: value,
+      }));
+      return;
+    }
+
+    if (name === "vehicleId") {
+      const selected = vehicleOptions.find((vehicle) => String(vehicle.value) === value);
+      setFormData((prev) => ({
+        ...prev,
+        vehicleId: value,
+        licensePlate: selected?.meta?.licensePlate || selected?.label || value,
+      }));
+      return;
+    }
+
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const newOrder: Order = {
       spNumber: generateSpNumber(),
       licensePlate: formData.licensePlate,
       driverId: formData.driverId,
+      driverDbId: formData.driverDbId,
+      vehicleId: formData.vehicleId,
       product: formData.product,
       planned: formData.planned,
-      schedule: new Date(formData.schedule).toLocaleDateString('id-ID', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }),
+      schedule: formData.schedule || new Date().toISOString(),
       status: formData.status,
       destinationName: formData.destinationName,
       destinationAddress: formData.destinationAddress,
@@ -119,15 +141,17 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
     };
 
     if (existingOrder && onRepeatOrder) {
-      onRepeatOrder(newOrder);
+      await onRepeatOrder(newOrder);
     } else {
-      onAddOrder(newOrder);
+      await onAddOrder(newOrder);
     }
     
     // Reset form
     setFormData({
-      licensePlate: vehicleOptions[0]?.value || "",
-      driverId: driverOptions[0]?.value || "",
+      licensePlate: vehicleOptions[0]?.meta?.licensePlate || "",
+      vehicleId: (vehicleOptions[0]?.value as string) || "",
+      driverId: driverOptions[0]?.meta?.driverCode || "",
+      driverDbId: (driverOptions[0]?.value as string) || "",
       product: "",
       planned: "",
       destinationName: spbuOptions[0]?.label || "",
@@ -153,6 +177,8 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
             setFormData({
               licensePlate: existingOrder.licensePlate,
               driverId: existingOrder.driverId,
+              driverDbId: existingOrder.driverDbId,
+              vehicleId: existingOrder.vehicleId,
               product: existingOrder.product,
               planned: existingOrder.planned,
               destinationName: existingOrder.destinationName,
@@ -177,22 +203,22 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="licensePlate" className="text-sm font-medium text-foreground">
+              <label htmlFor="vehicleId" className="text-sm font-medium text-foreground">
                 Pilih Kendaraan
               </label>
               <div className="relative">
                 <Truck className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <select
-                  id="licensePlate"
-                  name="licensePlate"
-                  value={formData.licensePlate}
+                  id="vehicleId"
+                  name="vehicleId"
+                  value={formData.vehicleId}
                   onChange={handleInputChange}
                   className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   required
                 >
                   {vehicleOptions.map((vehicle) => (
                     <option key={vehicle.value} value={vehicle.value}>
-                      {vehicle.label} ({vehicle.value})
+                      {vehicle.label} ({vehicle.meta?.licensePlate ?? vehicle.value})
                     </option>
                   ))}
                 </select>
@@ -208,14 +234,14 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
                 <select
                   id="driverId"
                   name="driverId"
-                  value={formData.driverId}
+                  value={formData.driverDbId}
                   onChange={handleInputChange}
                   className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   required
                 >
                   {driverOptions.map((driver) => (
                     <option key={driver.value} value={driver.value}>
-                      {driver.label} ({driver.value})
+                      {driver.label} ({driver.meta?.driverCode ?? driver.value})
                     </option>
                   ))}
                 </select>
