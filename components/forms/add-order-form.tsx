@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, useModal } from "@/components/ui/modal";
 import { Card } from "@/components/ui/card";
 import { FileText, Truck, User, Fuel, Calendar, Plus, Copy, MapPin, Navigation } from "lucide-react";
@@ -15,6 +15,7 @@ interface Order {
   planned: string;
   schedule: string;
   status: string;
+  spbuId?: string;
   destinationName: string;
   destinationAddress: string;
   destinationCoords: string;
@@ -32,7 +33,7 @@ interface AddOrderFormProps {
   existingOrder?: Order | null;
   driverOptions: SelectOption[];
   vehicleOptions: SelectOption[];
-  spbuOptions: Array<SelectOption & { meta?: { address?: string; coords?: string } }>;
+  spbuOptions: Array<SelectOption & { meta?: { address?: string; coords?: string; code?: string } }>;
 }
 
 function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions, vehicleOptions, spbuOptions }: AddOrderFormProps) {
@@ -47,9 +48,24 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
     destinationName: existingOrder?.destinationName || spbuOptions[0]?.label || "",
     destinationAddress: existingOrder?.destinationAddress || spbuOptions[0]?.meta?.address || "",
     destinationCoords: existingOrder?.destinationCoords || spbuOptions[0]?.meta?.coords || "",
+    spbuId: existingOrder?.spbuId || (spbuOptions[0]?.value as string) || "",
     schedule: "",
     status: "SCHEDULED"
   });
+
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...prev,
+      vehicleId: prev.vehicleId || (vehicleOptions[0]?.value as string) || "",
+      licensePlate: prev.licensePlate || vehicleOptions[0]?.meta?.licensePlate || "",
+      driverDbId: prev.driverDbId || (driverOptions[0]?.value as string) || "",
+      driverId: prev.driverId || driverOptions[0]?.meta?.driverCode || "",
+      spbuId: prev.spbuId || (spbuOptions[0]?.value as string) || "",
+      destinationName: prev.destinationName || spbuOptions[0]?.label || "",
+      destinationAddress: prev.destinationAddress || spbuOptions[0]?.meta?.address || "",
+      destinationCoords: prev.destinationCoords || spbuOptions[0]?.meta?.coords || "",
+    }));
+  }, [driverOptions, vehicleOptions, spbuOptions]);
 
   const generateSpNumber = (): string => {
     const today = new Date();
@@ -78,6 +94,7 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       destinationName: randomSpbu?.label || "",
       destinationAddress: randomSpbu?.meta?.address || "",
       destinationCoords: randomSpbu?.meta?.coords || "",
+      spbuId: (randomSpbu?.value as string) || "",
       schedule: tomorrow.toISOString().slice(0, 16),
       status: "SCHEDULED"
     });
@@ -85,17 +102,6 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    if (name === "destinationName") {
-      const spbu = spbuOptions.find((option) => option.label === value);
-      setFormData((prev) => ({
-        ...prev,
-        destinationName: value,
-        destinationAddress: spbu?.meta?.address || "",
-        destinationCoords: spbu?.meta?.coords || ""
-      }));
-      return;
-    }
-
     if (name === "driverId") {
       const selected = driverOptions.find((driver) => String(driver.value) === value);
       setFormData((prev) => ({
@@ -112,6 +118,18 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
         ...prev,
         vehicleId: value,
         licensePlate: selected?.meta?.licensePlate || selected?.label || value,
+      }));
+      return;
+    }
+
+    if (name === "spbuId") {
+      const selected = spbuOptions.find((option) => String(option.value) === value);
+      setFormData((prev) => ({
+        ...prev,
+        spbuId: value,
+        destinationName: selected?.label || prev.destinationName,
+        destinationAddress: selected?.meta?.address || "",
+        destinationCoords: selected?.meta?.coords || "",
       }));
       return;
     }
@@ -135,6 +153,7 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       planned: formData.planned,
       schedule: formData.schedule || new Date().toISOString(),
       status: formData.status,
+      spbuId: formData.spbuId,
       destinationName: formData.destinationName,
       destinationAddress: formData.destinationAddress,
       destinationCoords: formData.destinationCoords
@@ -157,6 +176,7 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       destinationName: spbuOptions[0]?.label || "",
       destinationAddress: spbuOptions[0]?.meta?.address || "",
       destinationCoords: spbuOptions[0]?.meta?.coords || "",
+      spbuId: (spbuOptions[0]?.value as string) || "",
       schedule: "",
       status: "SCHEDULED"
     });
@@ -184,6 +204,7 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
               destinationName: existingOrder.destinationName,
               destinationAddress: existingOrder.destinationAddress,
               destinationCoords: existingOrder.destinationCoords,
+              spbuId: existingOrder.spbuId,
               schedule: "",
               status: "SCHEDULED"
             });
@@ -251,22 +272,22 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="destinationName" className="text-sm font-medium text-foreground">
+              <label htmlFor="spbuId" className="text-sm font-medium text-foreground">
                 Tujuan SPBU
               </label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <select
-                  id="destinationName"
-                  name="destinationName"
-                  value={formData.destinationName}
+                  id="spbuId"
+                  name="spbuId"
+                  value={formData.spbuId}
                   onChange={handleInputChange}
                   className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   required
                 >
                   {spbuOptions.map((option) => (
-                    <option key={option.value ?? option.label} value={option.label}>
-                      {option.label}
+                    <option key={option.value ?? option.label} value={option.value as string}>
+                      {option.label} {option.meta?.code ? `(Kode ${option.meta.code})` : ""}
                     </option>
                   ))}
                 </select>

@@ -1,22 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, useModal } from "@/components/ui/modal";
 import { Card } from "@/components/ui/card";
 import { MapPin, Navigation, Building2, Plus } from "lucide-react";
 
 export interface Spbu {
+  id: string;
   code: string;
   name: string;
   address: string;
   coords: string;
 }
 
+export type SpbuInput = Omit<Spbu, "id">;
+
 interface AddSpbuFormProps {
-  onAddSpbu: (spbu: Spbu) => void;
+  spbu?: Spbu;
+  onSubmit: (spbu: SpbuInput, id?: string) => Promise<void>;
+  renderTrigger?: (open: () => void) => React.ReactNode;
 }
 
-function AddSpbuForm({ onAddSpbu }: AddSpbuFormProps) {
+function AddSpbuForm({ spbu, onSubmit, renderTrigger }: AddSpbuFormProps) {
   const { isOpen, open, close } = useModal();
   const [formData, setFormData] = useState({
     code: "",
@@ -24,6 +29,20 @@ function AddSpbuForm({ onAddSpbu }: AddSpbuFormProps) {
     address: "",
     coords: "",
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isEdit = Boolean(spbu);
+
+  useEffect(() => {
+    if (spbu) {
+      setFormData({
+        code: spbu.code,
+        name: spbu.name,
+        address: spbu.address,
+        coords: spbu.coords,
+      });
+    }
+  }, [spbu]);
 
   const sampleSpbu = [
     { code: "34.13102", name: "Lenteng Agung", address: "Jl. Lenteng Agung Raya No. 25, Jakarta Selatan", coords: "-6.336510, 106.820110" },
@@ -46,29 +65,40 @@ function AddSpbuForm({ onAddSpbu }: AddSpbuFormProps) {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload: Spbu = {
+    setIsSubmitting(true);
+
+    const payload: SpbuInput = {
       code: formData.code,
       name: formData.name,
       address: formData.address,
       coords: formData.coords,
     };
-    onAddSpbu(payload);
-    setFormData({ code: "", name: "", address: "", coords: "" });
-    close();
+
+    try {
+      await onSubmit(payload, spbu?.id);
+      setFormData({ code: "", name: "", address: "", coords: "" });
+      close();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <>
-      <button
-        onClick={open}
-        className="inline-flex items-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20"
-      >
-        <Plus className="h-4 w-4" /> New SPBU
-      </button>
+      {renderTrigger ? (
+        renderTrigger(open)
+      ) : (
+        <button
+          onClick={open}
+          className="inline-flex items-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20"
+        >
+          <Plus className="h-4 w-4" /> New SPBU
+        </button>
+      )}
 
-      <Modal isOpen={isOpen} onClose={close} title="Tambah SPBU" size="lg">
+      <Modal isOpen={isOpen} onClose={close} title={isEdit ? "Ubah SPBU" : "Tambah SPBU"} size="lg">
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -167,9 +197,10 @@ function AddSpbuForm({ onAddSpbu }: AddSpbuFormProps) {
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+              disabled={isSubmitting}
+              className="flex-1 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              Simpan SPBU
+              {isEdit ? "Update SPBU" : "Simpan SPBU"}
             </button>
           </div>
         </form>
