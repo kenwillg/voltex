@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { InfoCard } from "@/components/ui/card";
 import { DriversTable } from "@/components/ui/table";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import AddDriverForm from "@/components/forms/add-driver-form";
 import { Users } from "lucide-react";
-import { useFilterContext, useCombinedFilters } from "@/contexts/filter-context";
+import { useCombinedFilters } from "@/contexts/filter-context";
 import { usePathname } from "next/navigation";
 
 interface Driver {
@@ -17,37 +17,31 @@ interface Driver {
   isActive: boolean;
 }
 
-const initialDrivers: Driver[] = [
-  {
-    id: "DRV-0142",
-    name: "Satria Ramdhan",
-    phone: "+62 811-4456-782",
-    license: "SIM B1 19023451",
-    isActive: true,
-  },
-  {
-    id: "DRV-0128",
-    name: "Rahmat Santoso",
-    phone: "+62 812-8890-123",
-    license: "SIM B1 18098732",
-    isActive: true,
-  },
-  {
-    id: "DRV-0094",
-    name: "Didik Hartono",
-    phone: "+62 813-7756-909",
-    license: "SIM B2 17098123",
-    isActive: false,
-  },
-];
-
 export default function DriversPage() {
-  const [drivers, setDrivers] = useState<Driver[]>(initialDrivers);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const combinedFilters = useCombinedFilters();
   const pathname = usePathname();
-  
+
   const [searchTerm, setSearchTerm] = useState("");
   const [searchField, setSearchField] = useState("name");
+
+  useEffect(() => {
+    const fetchDrivers = async () => {
+      const response = await fetch("/api/drivers");
+      const data = await response.json();
+      const mapped: Driver[] = data.map((driver: any) => ({
+        id: driver.driverCode || driver.id,
+        name: driver.name,
+        phone: driver.phone || "-",
+        license: driver.licenseId || "-",
+        isActive: driver.isActive,
+      }));
+
+      setDrivers(mapped);
+    };
+
+    fetchDrivers();
+  }, []);
 
   // Handle search changes
   const handleSearchChange = (term: string, field: string) => {
@@ -103,8 +97,22 @@ export default function DriversPage() {
     return filtered;
   }, [drivers, combinedFilters, searchTerm, searchField]);
 
-  const handleAddDriver = (newDriver: Driver) => {
-    setDrivers(prev => [newDriver, ...prev]);
+  const handleAddDriver = async (newDriver: Omit<Driver, "id">) => {
+    const response = await fetch("/api/drivers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newDriver),
+    });
+
+    const created = await response.json();
+
+    setDrivers(prev => [{
+      id: created.driverCode || created.id,
+      name: created.name,
+      phone: created.phone || "-",
+      license: created.licenseId || "-",
+      isActive: created.isActive,
+    }, ...prev]);
   };
 
   return (

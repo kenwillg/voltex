@@ -5,16 +5,13 @@ import { Modal, useModal } from "@/components/ui/modal";
 import { Card } from "@/components/ui/card";
 import { User, Phone, CreditCard, Plus } from "lucide-react";
 
-interface Driver {
-  id: string;
-  name: string;
-  phone: string;
-  license: string;
-  isActive: boolean;
-}
-
 interface AddDriverFormProps {
-  onAddDriver: (driver: Driver) => void;
+  onAddDriver: (driver: {
+    name: string;
+    phone: string;
+    license: string;
+    isActive: boolean;
+  }) => Promise<void>;
 }
 
 function AddDriverForm({ onAddDriver }: AddDriverFormProps) {
@@ -25,11 +22,6 @@ function AddDriverForm({ onAddDriver }: AddDriverFormProps) {
     license: "",
     isActive: true
   });
-
-  const generateDriverId = (): string => {
-    const randomNum = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-    return `DRV-${randomNum}`;
-  };
 
   const generateDummyData = () => {
     const dummyDrivers = [
@@ -59,18 +51,15 @@ function AddDriverForm({ onAddDriver }: AddDriverFormProps) {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const newDriver: Driver = {
-      id: generateDriverId(),
+
+    await onAddDriver({
       name: formData.name,
       phone: formData.phone,
       license: formData.license,
       isActive: formData.isActive
-    };
-
-    onAddDriver(newDriver);
+    });
     
     // Reset form
     setFormData({
