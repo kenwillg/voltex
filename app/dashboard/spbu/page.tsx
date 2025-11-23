@@ -1,23 +1,30 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { InfoCard } from "@/components/ui/card";
-import AddSpbuForm, { Spbu } from "@/components/forms/add-spbu-form";
+import AddSpbuForm, { Spbu, SpbuInput } from "@/components/forms/add-spbu-form";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import { Table } from "@/components/ui/table";
-import { MapPin } from "lucide-react";
+import { MapPin, Pencil, Trash2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
-const initialSpbu: Spbu[] = [
-  { code: "34.17107", name: "SPBU Cipayung", address: "Jl. Raya Cipayung No. 14, Jakarta Timur", coords: "-6.317210, 106.903220" },
-  { code: "31.17602", name: "SPBU Pondok Gede", address: "Jl. Raya Pondok Gede No. 88, Bekasi", coords: "-6.268540, 106.924110" },
-  { code: "34.16712", name: "SPBU Bekasi Timur", address: "Jl. Cut Mutia No. 3, Rawalumbu, Bekasi", coords: "-6.245880, 107.000410" },
-];
-
 export default function SpbuPage() {
-  const [spbus, setSpbus] = useState<Spbu[]>(initialSpbu);
+  const [spbus, setSpbus] = useState<Spbu[]>([]);
+  const [loading, setLoading] = useState(true);
   const pathname = usePathname();
   const [searchTerm, setSearchTerm] = useState("");
+
+  const fetchSpbu = async () => {
+    setLoading(true);
+    const res = await fetch("/api/spbu");
+    const data = await res.json();
+    setSpbus(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    void fetchSpbu();
+  }, []);
 
   const handleSearchChange = (term: string, field: string) => {
     setSearchTerm(term);
@@ -35,8 +42,22 @@ export default function SpbuPage() {
     );
   }, [searchTerm, spbus]);
 
-  const handleAddSpbu = (spbu: Spbu) => {
-    setSpbus((prev) => [spbu, ...prev]);
+  const handleSaveSpbu = async (payload: SpbuInput, id?: string) => {
+    const endpoint = id ? `/api/spbu/${id}` : "/api/spbu";
+    const method = id ? "PUT" : "POST";
+
+    await fetch(endpoint, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    await fetchSpbu();
+  };
+
+  const handleDeleteSpbu = async (id: string) => {
+    await fetch(`/api/spbu/${id}`, { method: "DELETE" });
+    await fetchSpbu();
   };
 
   const columns = [
@@ -52,6 +73,32 @@ export default function SpbuPage() {
         <MapPin className="h-3 w-3" /> {value}
       </span>
     ) },
+    {
+      key: "actions",
+      label: "Actions",
+      render: (_: string, record: Spbu) => (
+        <div className="flex items-center gap-2">
+          <AddSpbuForm
+            spbu={record}
+            onSubmit={handleSaveSpbu}
+            renderTrigger={(open) => (
+              <button
+                onClick={open}
+                className="inline-flex items-center gap-1 rounded-xl border border-border/60 px-3 py-1 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </button>
+            )}
+          />
+          <button
+            onClick={() => handleDeleteSpbu(record.id)}
+            className="inline-flex items-center gap-1 rounded-xl border border-destructive/50 px-3 py-1 text-xs font-medium text-destructive transition hover:bg-destructive/10"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -67,9 +114,9 @@ export default function SpbuPage() {
         title="SPBU Directory"
         description={`Lokasi aktif (${filteredSpbu.length} dari ${spbus.length})`}
         icon={MapPin}
-        actions={<AddSpbuForm onAddSpbu={handleAddSpbu} />}
+        actions={<AddSpbuForm onSubmit={handleSaveSpbu} />}
       >
-        <Table columns={columns} data={filteredSpbu} />
+        <Table columns={columns} data={filteredSpbu} loading={loading} />
       </InfoCard>
     </div>
   );
