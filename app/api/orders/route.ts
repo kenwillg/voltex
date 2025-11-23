@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 function formatNotes(payload: any) {
-  if (!payload?.destinationName) return null;
+  if (!payload?.destinationName && !payload?.destinationAddress && !payload?.destinationCoords) return null;
   return JSON.stringify({
     destinationName: payload.destinationName,
     destinationAddress: payload.destinationAddress,
@@ -34,13 +34,20 @@ export async function GET() {
     include: {
       driver: true,
       vehicle: true,
+      spbu: true,
       loadSessions: true,
     },
     orderBy: { scheduledAt: "desc" },
   });
 
   const mapped = orders.map((order) => {
-    const destination = parseNotes(order.notes ?? undefined);
+    const destination = order.spbu
+      ? {
+          destinationName: order.spbu.name,
+          destinationAddress: order.spbu.address,
+          destinationCoords: order.spbu.coords,
+        }
+      : parseNotes(order.notes ?? undefined);
     const status = order.loadSessions[0]?.status || "SCHEDULED";
     return {
       ...order,
@@ -62,6 +69,7 @@ export async function POST(req: Request) {
   const order = await prisma.order.create({
     data: {
       spNumber: payload.spNumber || formatSpNumber(),
+      spbuId: payload.spbuId,
       vehicleId: payload.vehicleId,
       driverId: payload.driverId,
       product: payload.product,
@@ -72,6 +80,7 @@ export async function POST(req: Request) {
     include: {
       driver: true,
       vehicle: true,
+      spbu: true,
     },
   });
 

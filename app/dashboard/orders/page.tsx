@@ -20,22 +20,17 @@ interface Order {
   planned: string;
   schedule: string;
   status: string;
+  spbuId?: string;
   destinationName: string;
   destinationAddress: string;
   destinationCoords: string;
 }
 
-const spbuOptions = [
-  { label: "SPBU 34.17107 - Cipayung", value: "SPBU 34.17107", meta: { address: "Jl. Raya Cipayung No. 14, Jakarta Timur", coords: "-6.317210, 106.903220" } },
-  { label: "SPBU 31.17602 - Pondok Gede", value: "SPBU 31.17602", meta: { address: "Jl. Raya Pondok Gede No. 88, Bekasi", coords: "-6.268540, 106.924110" } },
-  { label: "SPBU 34.16712 - Bekasi Timur", value: "SPBU 34.16712", meta: { address: "Jl. Cut Mutia No. 3, Rawalumbu, Bekasi", coords: "-6.245880, 107.000410" } },
-  { label: "SPBU 34.16906 - Kalimalang", value: "SPBU 34.16906", meta: { address: "Jl. Inspeksi Saluran Kalimalang, Bekasi", coords: "-6.250210, 106.941410" } },
-];
-
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [driverOptions, setDriverOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
   const [vehicleOptions, setVehicleOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
+  const [spbuOptions, setSpbuOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
   const combinedFilters = useCombinedFilters();
   const pathname = usePathname();
 
@@ -44,6 +39,9 @@ export default function OrdersPage() {
 
   const mapOrderFromApi = (order: any): Order => {
     const schedule = new Date(order.scheduledAt);
+    const destinationName = order.spbu?.name || order.destination?.destinationName || "-";
+    const destinationAddress = order.spbu?.address || order.destination?.destinationAddress || "-";
+    const destinationCoords = order.spbu?.coords || order.destination?.destinationCoords || "-";
     return {
       spNumber: order.spNumber,
       licensePlate: order.vehicle?.licensePlate || order.vehicleId,
@@ -60,17 +58,19 @@ export default function OrdersPage() {
         minute: "2-digit",
       }),
       status: order.status || order.loadSessions?.[0]?.status || "SCHEDULED",
-      destinationName: order.destination?.destinationName || "-",
-      destinationAddress: order.destination?.destinationAddress || "-",
-      destinationCoords: order.destination?.destinationCoords || "-",
+      spbuId: order.spbu?.id || order.spbuId,
+      destinationName,
+      destinationAddress,
+      destinationCoords,
     };
   };
 
   useEffect(() => {
     const load = async () => {
-      const [driversRes, vehiclesRes, ordersRes] = await Promise.all([
+      const [driversRes, vehiclesRes, spbuRes, ordersRes] = await Promise.all([
         fetch("/api/drivers"),
         fetch("/api/vehicles"),
+        fetch("/api/spbu"),
         fetch("/api/orders"),
       ]);
 
@@ -89,6 +89,15 @@ export default function OrdersPage() {
           value: vehicle.id,
           label: `${vehicle.licensePlate}${vehicle.vehicleType ? ` • ${vehicle.vehicleType}` : ""}`,
           meta: { licensePlate: vehicle.licensePlate },
+        }))
+      );
+
+      const spbuData = await spbuRes.json();
+      setSpbuOptions(
+        spbuData.map((spbu: any) => ({
+          value: spbu.id,
+          label: `${spbu.name} (${spbu.code})`,
+          meta: { address: spbu.address, coords: spbu.coords, code: spbu.code },
         }))
       );
 
@@ -162,6 +171,7 @@ export default function OrdersPage() {
   const handleAddOrder = async (newOrder: Order) => {
     const vehicleId = newOrder.vehicleId || vehicleOptions.find((vehicle) => vehicle.meta?.licensePlate === newOrder.licensePlate)?.value;
     const driverId = newOrder.driverDbId || driverOptions.find((driver) => driver.meta?.driverCode === newOrder.driverId)?.value;
+    const spbuId = newOrder.spbuId || (spbuOptions[0]?.value as string);
 
     await fetch("/api/orders", {
       method: "POST",
@@ -170,8 +180,12 @@ export default function OrdersPage() {
         ...newOrder,
         vehicleId,
         driverId,
+        spbuId,
         plannedLiters: newOrder.planned,
         scheduledAt: newOrder.schedule,
+        destinationName: newOrder.destinationName,
+        destinationAddress: newOrder.destinationAddress,
+        destinationCoords: newOrder.destinationCoords,
       }),
     });
 
