@@ -18,6 +18,7 @@ export async function POST(req: Request) {
       name: payload.name,
       address: payload.address,
       coords: payload.coords,
+      updatedAt: new Date(),
       isActive: payload.isActive ?? true,
     },
   });
