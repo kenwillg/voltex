@@ -1,21 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
-import { Clock, Fuel, GaugeCircle, Users, Warehouse } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Clock, Fuel, GaugeCircle, Users, Warehouse, Plus } from "lucide-react";
 import { InfoCard } from "@/components/ui/card";
 import { useStatusContext } from "@/contexts/status-context";
 import { StatusManager } from "@/lib/base-component";
+import BayForm, { BayPayload, BaySlot } from "@/components/forms/bay-form";
 
 const formatTime = (value?: string) =>
   value ? new Date(value).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-";
 
-const parseVolume = (value?: string) => {
-  if (!value) return 0;
-  const numeric = value.replace(/[^\d]/g, "");
-  return Number(numeric) || 0;
-};
+  const parseVolume = (value?: string) => {
+    if (!value) return 0;
+    const numeric = value.replace(/[^\d]/g, "");
+    return Number(numeric) || 0;
+  };
 
-const formatVolumeLabel = (value: number) => `${value.toLocaleString("id-ID")} L`;
+  const formatVolumeLabel = (value: number) => `${value.toLocaleString("id-ID")} L`;
 
 const getBayName = (slot?: string) => {
   if (!slot) return undefined;
@@ -35,10 +36,103 @@ type BayConfiguration = {
   description: string;
   capacity: number;
   slots: BaySlotConfig[];
+  id?: string;
 };
 
 export default function FuelBayPage() {
   const { sessions } = useStatusContext();
+  const [bayConfigurations, setBayConfigurations] = useState<BayConfiguration[]>([]);
+  const [loadingBays, setLoadingBays] = useState(true);
+  const [terminalCapacity, setTerminalCapacity] = useState<number | null>(null);
+  const [orders, setOrders] = useState<any[]>([]);
+
+  const loadBays = async () => {
+    setLoadingBays(true);
+    try {
+      const res = await fetch("/api/bays");
+      const data = await res.json();
+      if (Array.isArray(data) && data.length) {
+        setBayConfigurations(
+          data.map((bay: any) => ({
+            id: bay.id,
+            bay: bay.name,
+            family: bay.family || "Flexible",
+            description: bay.description || "-",
+            capacity: bay.capacityLiters || 0,
+            slots: Array.isArray(bay.slots)
+              ? bay.slots.map((slot: any) => ({
+                  slot: slot.slot,
+                  product: slot.product,
+                  capacity: slot.capacityLiters ?? 0,
+                }))
+              : [],
+          })),
+        );
+      } else {
+        setBayConfigurations(defaultBayConfigs);
+      }
+    } catch {
+      setBayConfigurations(defaultBayConfigs);
+    } finally {
+      setLoadingBays(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBays();
+    (async () => {
+      try {
+        const termRes = await fetch("/api/terminal");
+        const termData = await termRes.json();
+        setTerminalCapacity(typeof termData?.capacityLiters === "number" ? termData.capacityLiters : null);
+      } catch {
+        setTerminalCapacity(null);
+      }
+    })();
+    (async () => {
+      try {
+        const res = await fetch("/api/orders");
+        const data = await res.json();
+        setOrders(Array.isArray(data) ? data : []);
+      } catch {
+        setOrders([]);
+      }
+    })();
+  }, []);
+
+  const defaultBayConfigs: BayConfiguration[] = [
+    {
+      bay: "Bay 1",
+      family: "Bensin",
+      description: "Dedicated gasoline manifold",
+      capacity: 24_000,
+      slots: [
+        { slot: "1A", product: "Pertalite", capacity: 8_000 },
+        { slot: "1B", product: "Pertamax", capacity: 8_000 },
+        { slot: "1C", product: "Pertamax Turbo", capacity: 8_000 },
+      ],
+    },
+    {
+      bay: "Bay 2",
+      family: "Diesel / Solar",
+      description: "High-flow diesel pumps",
+      capacity: 20_000,
+      slots: [
+        { slot: "2A", product: "Solar", capacity: 10_000 },
+        { slot: "2B", product: "Dexlite", capacity: 10_000 },
+      ],
+    },
+    {
+      bay: "Bay 3",
+      family: "Flexible",
+      description: "Backup manifold, configurable per shift",
+      capacity: 18_000,
+      slots: [
+        { slot: "3A", product: "Pertalite", capacity: 9_000 },
+        { slot: "3B", product: "Solar", capacity: 9_000 },
+      ],
+    },
+  ];
 
   const activeSessions = useMemo(
     () =>
@@ -46,43 +140,6 @@ export default function FuelBayPage() {
         ["LOADING", "GATE_IN", "SCHEDULED"].includes(session.status),
       ),
     [sessions],
-  );
-
-  const bayConfigurations = useMemo<BayConfiguration[]>(
-    () => [
-      {
-        bay: "Bay 1",
-        family: "Bensin",
-        description: "Dedicated gasoline manifold",
-        capacity: 24_000,
-        slots: [
-          { slot: "1A", product: "Pertalite", capacity: 8_000 },
-          { slot: "1B", product: "Pertamax", capacity: 8_000 },
-          { slot: "1C", product: "Pertamax Turbo", capacity: 8_000 },
-        ],
-      },
-      {
-        bay: "Bay 2",
-        family: "Diesel / Solar",
-        description: "High-flow diesel pumps",
-        capacity: 20_000,
-        slots: [
-          { slot: "2A", product: "Solar", capacity: 10_000 },
-          { slot: "2B", product: "Dexlite", capacity: 10_000 },
-        ],
-      },
-      {
-        bay: "Bay 3",
-        family: "Flexible",
-        description: "Backup manifold, configurable per shift",
-        capacity: 18_000,
-        slots: [
-          { slot: "3A", product: "Pertalite", capacity: 9_000 },
-          { slot: "3B", product: "Solar", capacity: 9_000 },
-        ],
-      },
-    ],
-    [],
   );
 
   const highlighted = activeSessions[0] ?? sessions[0];
@@ -110,25 +167,130 @@ export default function FuelBayPage() {
 
   const capacityTotals = useMemo(
     () => {
-      const totalCapacity = bayConfigurations.reduce((sum, config) => sum + config.capacity, 0);
-      let totalPlannedVolume = 0;
-      let totalLoadingVolume = 0;
+      const baysCapacity = bayConfigurations.reduce((sum, config) => sum + config.capacity, 0);
+      const totalCapacity = terminalCapacity ?? baysCapacity;
+      const orderScheduled = orders
+        .filter((o) => ["SCHEDULED", "GATE_IN"].includes(o.status ?? o.loadSessions?.[0]?.status ?? ""))
+        .reduce((sum, o) => sum + Number(o.plannedLiters ?? 0), 0);
+      const orderLoading = orders
+        .filter((o) => (o.status ?? o.loadSessions?.[0]?.status ?? "") === "LOADING")
+        .reduce((sum, o) => sum + Number(o.plannedLiters ?? 0), 0);
 
-      sessions.forEach((session) => {
-        const planned = parseVolume(session.plannedVolume);
-        totalPlannedVolume += planned;
-        if (session.status === "LOADING") {
-          totalLoadingVolume += planned;
-        }
-      });
-
-      return { totalCapacity, totalPlannedVolume, totalLoadingVolume };
+      return { totalCapacity, totalPlannedVolume: orderScheduled, totalLoadingVolume: orderLoading };
     },
-    [bayConfigurations, sessions],
+    [bayConfigurations, sessions, terminalCapacity, orders],
   );
 
+  const handleSaveBay = async (payload: BayPayload, id?: string) => {
+    const slots = payload.slots?.map((slot) => ({
+      slot: slot.slot,
+      product: slot.product,
+      capacityLiters: slot.capacityLiters,
+    }));
+
+    if (id) {
+      await fetch(`/api/bays/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, slots }),
+      });
+    } else {
+      await fetch("/api/bays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, slots }),
+      });
+    }
+    await loadBays();
+  };
+
+  const handleDeleteBay = async (id?: string) => {
+    if (!id) return;
+    await fetch(`/api/bays/${id}`, { method: "DELETE" });
+    await loadBays();
+  };
+
   if (!highlighted) {
-    return null;
+    const bays = bayConfigurations.length ? bayConfigurations : defaultBayConfigs;
+    return (
+      <div className="space-y-6">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.32em] text-primary">Distribution Monitoring</p>
+          <h1 className="mt-2 text-3xl font-semibold text-foreground">Fuel Bay Monitoring</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Belum ada sesi loading. Tambahkan surat perintah atau konfigurasi bay untuk mulai memantau aktivitas.
+          </p>
+        </div>
+
+        <InfoCard
+          title="Ringkasan Kapasitas"
+          description="Kapasitas terminal dan alokasi volume"
+          icon={GaugeCircle}
+        >
+          <div className="grid gap-3 sm:grid-cols-3 text-sm">
+            <Metric label="Kapasitas Terminal" value={formatVolumeLabel(capacityTotals.totalCapacity)} />
+            <Metric label="Volume Terjadwal" value={formatVolumeLabel(capacityTotals.totalPlannedVolume)} />
+            <Metric label="Sedang Mengisi" value={formatVolumeLabel(capacityTotals.totalLoadingVolume)} />
+          </div>
+        </InfoCard>
+
+        <InfoCard
+          title="Fuel Bay Configuration"
+          description="Tambahkan bay, kapasitas, dan slot produk"
+          icon={Warehouse}
+          actions={
+            <BayForm
+              onSubmit={handleSaveBay}
+              renderTrigger={(open) => (
+                <button
+                  onClick={open}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20"
+                >
+                  <Plus className="h-4 w-4" /> New Bay
+                </button>
+              )}
+            />
+          }
+        >
+          {bays.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Belum ada sesi aktif. Buat order di halaman Orders untuk melihat daftar loading di sini.
+            </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-3">
+              {bays.map((config) => (
+                <div key={config.bay} className="rounded-2xl border border-border/60 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">{config.bay}</p>
+                      <p className="text-lg font-semibold text-foreground">{config.family}</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {config.slots.length} slot • {formatVolumeLabel(config.capacity)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">{config.description}</p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    {config.slots.map((slot) => (
+                      <div
+                        key={`${config.bay}-${slot.slot}`}
+                        className="flex items-center justify-between rounded-xl border border-border/60 px-3 py-2"
+                      >
+                        <div>
+                          <span className="block font-semibold text-foreground">Bay {slot.slot}</span>
+                          <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">{slot.product}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{formatVolumeLabel(slot.capacity)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </InfoCard>
+      </div>
+    );
   }
 
   return (
@@ -143,9 +305,34 @@ export default function FuelBayPage() {
       </div>
 
       <InfoCard
+        title="Ringkasan Kapasitas"
+        description="Kapasitas terminal dan alokasi volume"
+        icon={GaugeCircle}
+      >
+        <div className="grid gap-3 sm:grid-cols-3 text-sm">
+          <Metric label="Kapasitas Terminal" value={formatVolumeLabel(capacityTotals.totalCapacity)} />
+          <Metric label="Volume Terjadwal" value={formatVolumeLabel(capacityTotals.totalPlannedVolume)} />
+          <Metric label="Sedang Mengisi" value={formatVolumeLabel(capacityTotals.totalLoadingVolume)} />
+        </div>
+      </InfoCard>
+
+      <InfoCard
         title="Bay utilization"
         description="Ringkasan sesi antrian, pengisian, dan selesai"
         icon={Users}
+        actions={
+          <BayForm
+            onSubmit={handleSaveBay}
+            renderTrigger={(open) => (
+              <button
+                onClick={open}
+                className="inline-flex items-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20"
+              >
+                <Plus className="h-4 w-4" /> New Bay
+              </button>
+            )}
+          />
+        }
       >
         <div className="grid gap-3 sm:grid-cols-3 text-sm">
           <Metric label="Sedang Mengisi" value={sessions.filter((s) => s.status === "LOADING").length} />
@@ -200,8 +387,12 @@ export default function FuelBayPage() {
         description="Mapping slot fisik terhadap jenis BBM yang tersedia"
         icon={Warehouse}
       >
+        {/* <div className="flex items-center justify-between pb-3 text-xs text-muted-foreground">
+          <p>Konfigurasi bay dan slot dapat diubah kapan saja.</p>
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">CRUD Ready</span>
+        </div> */}
         <div className="grid gap-4 md:grid-cols-3">
-          {bayConfigurations.map((config) => {
+          {(loadingBays ? defaultBayConfigs : bayConfigurations).map((config) => {
             const usage = bayUsage[config.bay] ?? { planned: 0, active: 0 };
             const plannedPct = config.capacity ? Math.min(100, Math.round((usage.planned / config.capacity) * 100)) : 0;
             return (
@@ -237,6 +428,40 @@ export default function FuelBayPage() {
                     </div>
                   ))}
                 </div>
+                {config.id && (
+                  <div className="mt-3 flex gap-2">
+                    <BayForm
+                      bay={{
+                        id: config.id,
+                        name: config.bay,
+                        family: config.family,
+                        description: config.description,
+                        capacityLiters: config.capacity,
+                        slots: config.slots.map((s) => ({
+                          slot: s.slot,
+                          product: s.product,
+                          capacityLiters: s.capacity,
+                        })) as BaySlot[],
+                        isActive: true,
+                      }}
+                      onSubmit={handleSaveBay}
+                      renderTrigger={(open) => (
+                        <button
+                          onClick={open}
+                          className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground transition hover:border-primary/60 hover:text-primary"
+                        >
+                          Edit
+                        </button>
+                      )}
+                    />
+                    <button
+                      onClick={() => handleDeleteBay(config.id)}
+                      className="rounded-lg border border-destructive/40 px-3 py-1 text-xs text-destructive transition hover:bg-destructive/10"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

@@ -29,9 +29,10 @@ const navigation = [
 ];
 
 const logo = {
-  text: "Fuel Terminal",
-  subtitle: "Distribution Monitoring",
-  initials: "DM"
+  text: "Voltex",
+  subtitle: "Fuel Terminal",
+  initials: "VX",
+  imageSrc: "/voltex-logo-light.png"
 };
 
 interface DashboardLayoutProps {

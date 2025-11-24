@@ -12,7 +12,7 @@ interface Order {
   driverDbId?: string;
   vehicleId?: string;
   product: string;
-  planned: string;
+  plannedLiters: number;
   schedule: string;
   status: string;
   spbuId?: string;
@@ -34,17 +34,26 @@ interface AddOrderFormProps {
   driverOptions: SelectOption[];
   vehicleOptions: SelectOption[];
   spbuOptions: Array<SelectOption & { meta?: { address?: string; coords?: string; code?: string } }>;
+  productOptions?: Array<{ id?: string; name: string } | string>;
 }
 
-function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions, vehicleOptions, spbuOptions }: AddOrderFormProps) {
+function AddOrderForm({
+  onAddOrder,
+  onRepeatOrder,
+  existingOrder,
+  driverOptions,
+  vehicleOptions,
+  spbuOptions,
+  productOptions = [],
+}: AddOrderFormProps) {
   const { isOpen, open, close } = useModal();
   const [formData, setFormData] = useState({
     licensePlate: existingOrder?.licensePlate || vehicleOptions[0]?.meta?.licensePlate || "",
     driverId: existingOrder?.driverId || driverOptions[0]?.meta?.driverCode || driverOptions[0]?.value || "",
     driverDbId: existingOrder?.driverDbId || (driverOptions[0]?.value as string) || "",
     vehicleId: existingOrder?.vehicleId || (vehicleOptions[0]?.value as string) || "",
-    product: existingOrder?.product || "",
-    planned: existingOrder?.planned || "",
+    product: existingOrder?.product || (productOptions[0] && (typeof productOptions[0] === "string" ? productOptions[0] : productOptions[0].name)) || "",
+    planned: existingOrder?.plannedLiters ? String(existingOrder.plannedLiters) : "",
     destinationName: existingOrder?.destinationName || spbuOptions[0]?.label || "",
     destinationAddress: existingOrder?.destinationAddress || spbuOptions[0]?.meta?.address || "",
     destinationCoords: existingOrder?.destinationCoords || spbuOptions[0]?.meta?.coords || "",
@@ -64,8 +73,12 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       destinationName: prev.destinationName || spbuOptions[0]?.label || "",
       destinationAddress: prev.destinationAddress || spbuOptions[0]?.meta?.address || "",
       destinationCoords: prev.destinationCoords || spbuOptions[0]?.meta?.coords || "",
+      product:
+        prev.product ||
+        (productOptions[0] && (typeof productOptions[0] === "string" ? productOptions[0] : productOptions[0].name)) ||
+        "",
     }));
-  }, [driverOptions, vehicleOptions, spbuOptions]);
+  }, [driverOptions, vehicleOptions, spbuOptions, productOptions]);
 
   const generateSpNumber = (): string => {
     const today = new Date();
@@ -78,8 +91,10 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
     const randomDriver = driverOptions[Math.floor(Math.random() * driverOptions.length)];
     const randomVehicle = vehicleOptions[Math.floor(Math.random() * vehicleOptions.length)];
     const randomSpbu = spbuOptions[Math.floor(Math.random() * spbuOptions.length)];
-    const products = ["Pertalite", "Pertamax", "Pertamax Turbo", "Solar", "Dexlite"];
-    const randomProduct = products[Math.floor(Math.random() * products.length)];
+    const products = productOptions.length
+      ? productOptions.map((p) => (typeof p === "string" ? p : p.name))
+      : ["Pertalite", "Pertamax", "Pertamax Turbo", "Solar", "Dexlite"];
+    const randomProduct = products[Math.floor(Math.random() * products.length)] || "";
 
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -91,6 +106,7 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       driverId: randomDriver?.meta?.driverCode || randomDriver?.label || "",
       product: randomProduct,
       planned: `${(7000 + Math.floor(Math.random() * 2000)).toLocaleString("id-ID")} L`,
+      planned: `${7000 + Math.floor(Math.random() * 2000)}`,
       destinationName: randomSpbu?.label || "",
       destinationAddress: randomSpbu?.meta?.address || "",
       destinationCoords: randomSpbu?.meta?.coords || "",
@@ -143,6 +159,7 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const plannedLiters = formData.planned ? Number(String(formData.planned).replace(/[^0-9.]/g, "")) : 0;
     const newOrder: Order = {
       spNumber: generateSpNumber(),
       licensePlate: formData.licensePlate,
@@ -150,7 +167,7 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       driverDbId: formData.driverDbId,
       vehicleId: formData.vehicleId,
       product: formData.product,
-      planned: formData.planned,
+      plannedLiters,
       schedule: formData.schedule || new Date().toISOString(),
       status: formData.status,
       spbuId: formData.spbuId,
@@ -171,7 +188,9 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
       vehicleId: (vehicleOptions[0]?.value as string) || "",
       driverId: driverOptions[0]?.meta?.driverCode || "",
       driverDbId: (driverOptions[0]?.value as string) || "",
-      product: "",
+      product:
+        (productOptions[0] && (typeof productOptions[0] === "string" ? productOptions[0] : productOptions[0].name)) ||
+        "",
       planned: "",
       destinationName: spbuOptions[0]?.label || "",
       destinationAddress: spbuOptions[0]?.meta?.address || "",
@@ -190,21 +209,21 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
 
   return (
     <>
-      <button 
+          <button 
         onClick={() => {
           if (existingOrder) {
             // Pre-fill form with existing order data
             setFormData({
               licensePlate: existingOrder.licensePlate,
               driverId: existingOrder.driverId,
-              driverDbId: existingOrder.driverDbId,
-              vehicleId: existingOrder.vehicleId,
+              driverDbId: existingOrder.driverDbId ?? "",
+              vehicleId: existingOrder.vehicleId ?? "",
               product: existingOrder.product,
-              planned: existingOrder.planned,
+              planned: existingOrder.plannedLiters ? String(existingOrder.plannedLiters) : "",
               destinationName: existingOrder.destinationName,
               destinationAddress: existingOrder.destinationAddress,
               destinationCoords: existingOrder.destinationCoords,
-              spbuId: existingOrder.spbuId,
+              spbuId: existingOrder.spbuId ?? "",
               schedule: "",
               status: "SCHEDULED"
             });
@@ -348,12 +367,15 @@ function AddOrderForm({ onAddOrder, onRepeatOrder, existingOrder, driverOptions,
                   className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   required
                 >
-                  <option value="">Select Product</option>
-                  <option value="Pertalite">Pertalite</option>
-                  <option value="Pertamax">Pertamax</option>
-                  <option value="Pertamax Turbo">Pertamax Turbo</option>
-                  <option value="Solar">Solar</option>
-                  <option value="Dexlite">Dexlite</option>
+                  <option value="">{productOptions.length ? "Pilih produk BBM" : "Loading produk..."}</option>
+                  {(productOptions.length
+                    ? productOptions.map((p) => (typeof p === "string" ? { label: p, value: p } : { label: p.name, value: p.name }))
+                    : ["Pertalite", "Pertamax", "Pertamax Turbo", "Solar", "Dexlite"].map((p) => ({ label: p, value: p }))
+                  ).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

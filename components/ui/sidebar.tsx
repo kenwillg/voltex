@@ -27,6 +27,7 @@ interface SidebarProps {
     text: string;
     subtitle?: string;
     initials?: string;
+    imageSrc?: string;
   };
   actions?: ReactNode;
   className?: string;
@@ -118,9 +119,15 @@ export function Sidebar({
           <div className="flex items-center gap-3">
             {logo && (
               <>
-                <span className={sidebarComponent.getLogoStyles()}>
-                  {logo.initials || "DM"}
-                </span>
+                {logo.imageSrc ? (
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-border/60 bg-background/80">
+                    <img src={logo.imageSrc} alt={logo.text} className="h-8 w-8 object-contain" />
+                  </div>
+                ) : (
+                  <span className={sidebarComponent.getLogoStyles()}>
+                    {logo.initials || "DM"}
+                  </span>
+                )}
                 <div>
                   {logo.subtitle && (
                     <p className="text-sm font-medium text-muted-foreground">
