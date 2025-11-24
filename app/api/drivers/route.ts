@@ -26,6 +26,7 @@ export async function POST(req: Request) {
       name: payload.name,
       phone: payload.phone || null,
       licenseId: payload.license || null,
+      email: payload.email || null,
       isActive: payload.isActive ?? true,
     },
   });

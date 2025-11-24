@@ -274,6 +274,7 @@ interface DriversTableProps {
   data: Array<{
     id: string;
     name: string;
+    email?: string;
     phone: string;
     license: string;
     isActive: boolean;
@@ -290,6 +291,7 @@ export function DriversTable({ data, className }: DriversTableProps) {
       <span className="font-semibold text-foreground">{value}</span>
     )},
     { key: "name", label: "Name" },
+    { key: "email", label: "Email", className: "text-muted-foreground" },
     { key: "phone", label: "Phone", className: "text-muted-foreground" },
     { key: "license", label: "License" },
     { key: "isActive", label: "Status", render: (value) => (

@@ -3,52 +3,31 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-// -- Enums --
-
-enum LoadStatus {
-  SCHEDULED
-  GATE_IN
-  QUEUED
-  LOADING
-  GATE_OUT
-  FINISHED
-  CANCELLED
-  REJECTED
-  ON_HOLD
-  
-  // Mapping to database enum name if needed, but let's stick to standard naming
-  @@map("load_status")
-}
-
-// -- Models --
-
 model Bay {
-  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name          String        @unique
-  isActive      Boolean       @default(true) @map("is_active")
-  
-  loadSessions  LoadSession[]
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String        @unique
+  isActive     Boolean       @default(true) @map("is_active")
+  loadSessions LoadSession[]
 
   @@map("bays")
 }
 
 model Driver {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  driverCode  String?  @unique @map("driver_code") // e.g. DRV-0142
-  name        String
-  phone       String?
-  licenseId   String?  @unique @map("license_id")
-  isActive    Boolean  @default(true) @map("is_active")
-  
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  orders      Order[]
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  driverCode String?  @unique @map("driver_code")
+  name       String
+  phone      String?
+  email      String?
+  licenseId  String?  @unique @map("license_id")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  orders     Order[]
 
   @@map("drivers")
 }
@@ -60,107 +39,83 @@ model Spbu {
   address   String
   coords    String
   isActive  Boolean  @default(true) @map("is_active")
-
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-
   orders    Order[]
 
-  @@map("spbu")
   @@index([code], map: "idx_spbu_code")
+  @@map("spbu")
 }
 
 model Vehicle {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   licensePlate String   @unique @map("license_plate")
   vehicleType  String?  @map("vehicle_type")
+  capacityLiters Int?    @map("capacity_liters")
   ownerName    String?  @map("owner_name")
   isActive     Boolean  @default(true) @map("is_active")
-  
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-
   orders       Order[]
 
-  @@map("vehicles")
   @@index([licensePlate], map: "idx_vehicles_plate")
+  @@map("vehicles")
 }
 
 model Order {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  spNumber      String    @unique @map("sp_number") // e.g. SP-240503
-
-  // Foreign Keys
-  spbuId        String    @map("spbu_id") @db.Uuid
-  vehicleId     String    @map("vehicle_id") @db.Uuid
-  driverId      String    @map("driver_id") @db.Uuid
-  createdBy     String?   @map("created_by") @db.Uuid
-  
-  // Details
-  product       String    @default("FUEL")
-  plannedLiters Decimal   @map("planned_liters") @db.Decimal(12, 2)
-  scheduledAt   DateTime  @map("scheduled_at") @db.Timestamptz(6)
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  spNumber      String        @unique @map("sp_number")
+  spbuId        String        @map("spbu_id") @db.Uuid
+  vehicleId     String        @map("vehicle_id") @db.Uuid
+  driverId      String        @map("driver_id") @db.Uuid
+  createdBy     String?       @map("created_by") @db.Uuid
+  product       String        @default("FUEL")
+  plannedLiters Decimal       @map("planned_liters") @db.Decimal(12, 2)
+  scheduledAt   DateTime      @map("scheduled_at") @db.Timestamptz(6)
   notes         String?
-  
-  // QR logic
-  qrCodeValue   String?   @unique @map("qr_code_value")
-  qrExpiresAt   DateTime? @map("qr_expires_at") @db.Timestamptz(6)
-
-  // Timestamps
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  // Relationships
-  vehicle       Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: NoAction)
+  qrCodeValue   String?       @unique @map("qr_code_value")
+  qrExpiresAt   DateTime?     @map("qr_expires_at") @db.Timestamptz(6)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  loadSessions  LoadSession[]
   driver        Driver        @relation(fields: [driverId], references: [id], onDelete: NoAction)
   spbu          Spbu          @relation(fields: [spbuId], references: [id], onDelete: NoAction)
-  loadSessions  LoadSession[]
+  vehicle       Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: NoAction)
 
-  @@map("orders")
   @@index([driverId], map: "idx_orders_driver")
   @@index([spbuId], map: "idx_orders_spbu")
   @@index([scheduledAt], map: "idx_orders_scheduled_at")
   @@index([vehicleId], map: "idx_orders_vehicle")
+  @@map("orders")
 }
 
 model LoadSession {
-  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orderId        String     @map("order_id") @db.Uuid
-  
-  status         LoadStatus @default(SCHEDULED)
-  
-  // Timestamps for the lifecycle
-  gateInAt       DateTime?  @map("gate_in_at") @db.Timestamptz(6)
-  queuedAt       DateTime?  @map("queued_at") @db.Timestamptz(6)
-  loadingStartAt DateTime?  @map("loading_start_at") @db.Timestamptz(6)
-  loadingEndAt   DateTime?  @map("loading_end_at") @db.Timestamptz(6)
-  gateOutAt      DateTime?  @map("gate_out_at") @db.Timestamptz(6)
-  finishedAt     DateTime?  @map("finished_at") @db.Timestamptz(6)
-  
-  // Operations
-  bayId          String?    @map("bay_id") @db.Uuid
-  shiftId        String?    @map("shift_id") @db.Uuid
-  actualLiters   Decimal?   @map("actual_liters") @db.Decimal(12, 2)
-  
-  // Issues
-  cancelReason   String?    @map("cancel_reason")
-  holdReason     String?    @map("hold_reason")
-  rejectReason   String?    @map("reject_reason")
-
-  // Metadata
-  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  // Relationships
-  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  bay            Bay?          @relation(fields: [bayId], references: [id], onDelete: NoAction)
-  shift          Shift?        @relation(fields: [shiftId], references: [id], onDelete: NoAction)
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String        @map("order_id") @db.Uuid
+  status         LoadStatus    @default(SCHEDULED)
+  gateInAt       DateTime?     @map("gate_in_at") @db.Timestamptz(6)
+  queuedAt       DateTime?     @map("queued_at") @db.Timestamptz(6)
+  loadingStartAt DateTime?     @map("loading_start_at") @db.Timestamptz(6)
+  loadingEndAt   DateTime?     @map("loading_end_at") @db.Timestamptz(6)
+  gateOutAt      DateTime?     @map("gate_out_at") @db.Timestamptz(6)
+  finishedAt     DateTime?     @map("finished_at") @db.Timestamptz(6)
+  bayId          String?       @map("bay_id") @db.Uuid
+  shiftId        String?       @map("shift_id") @db.Uuid
+  actualLiters   Decimal?      @map("actual_liters") @db.Decimal(12, 2)
+  cancelReason   String?       @map("cancel_reason")
+  holdReason     String?       @map("hold_reason")
+  rejectReason   String?       @map("reject_reason")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
   cctvCaptures   CctvCapture[]
+  bay            Bay?          @relation(fields: [bayId], references: [id], onDelete: NoAction)
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shift          Shift?        @relation(fields: [shiftId], references: [id], onDelete: NoAction)
 
-  @@map("load_sessions")
   @@index([finishedAt], map: "idx_load_sessions_finished_at")
   @@index([orderId], map: "idx_load_sessions_order")
   @@index([status], map: "idx_load_sessions_status")
+  @@map("load_sessions")
 }
 
 model Shift {
@@ -169,7 +124,6 @@ model Shift {
   startTime    DateTime      @map("start_time") @db.Time(6)
   endTime      DateTime      @map("end_time") @db.Time(6)
   isActive     Boolean       @default(true) @map("is_active")
-  
   loadSessions LoadSession[]
 
   @@map("shifts")
@@ -182,9 +136,22 @@ model CctvCapture {
   storagePath     String      @map("storage_path")
   licensePlateOcr String?     @map("license_plate_ocr")
   cameraId        String?     @map("camera_id")
-  
   loadSession     LoadSession @relation(fields: [loadSessionId], references: [id], onDelete: Cascade)
 
-  @@map("cctv_captures")
   @@index([loadSessionId, capturedAt], map: "idx_cctv_session_time")
+  @@map("cctv_captures")
+}
+
+enum LoadStatus {
+  SCHEDULED
+  GATE_IN
+  QUEUED
+  LOADING
+  GATE_OUT
+  FINISHED
+  CANCELLED
+  REJECTED
+  ON_HOLD
+
+  @@map("load_status")
 }

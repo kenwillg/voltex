@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { InfoCard } from "@/components/ui/card";
 import AddVehicleForm, { Vehicle } from "@/components/forms/add-vehicle-form";
 import DynamicSearch from "@/components/ui/dynamic-search";
@@ -9,14 +9,8 @@ import { Truck } from "lucide-react";
 import { useCombinedFilters } from "@/contexts/filter-context";
 import { usePathname } from "next/navigation";
 
-const initialVehicles: Vehicle[] = [
-  { id: "VH-0001", licensePlate: "B 7261 JP", type: "Hino 260", capacity: "16 KL", owner: "PT Voltex Logistics" },
-  { id: "VH-0002", licensePlate: "B 9087 TX", type: "Isuzu Giga", capacity: "14 KL", owner: "PT Energi Sentral" },
-  { id: "VH-0003", licensePlate: "B 7812 QK", type: "Mercedes Axor", capacity: "18 KL", owner: "PT Armada Prima" },
-];
-
 export default function VehiclesPage() {
-  const [vehicles, setVehicles] = useState<Vehicle[]>(initialVehicles);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const combinedFilters = useCombinedFilters();
   const pathname = usePathname();
   const [searchTerm, setSearchTerm] = useState("");
@@ -33,19 +27,84 @@ export default function VehiclesPage() {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter((vehicle) => {
         if (searchField === "licensePlate") return vehicle.licensePlate.toLowerCase().includes(term);
-        if (searchField === "type") return vehicle.type.toLowerCase().includes(term);
-        if (searchField === "owner") return vehicle.owner.toLowerCase().includes(term);
-        return vehicle.licensePlate.toLowerCase().includes(term) || vehicle.type.toLowerCase().includes(term);
+        if (searchField === "vehicleType") return (vehicle.vehicleType || "").toLowerCase().includes(term);
+        if (searchField === "ownerName") return (vehicle.ownerName || "").toLowerCase().includes(term);
+        return (
+          vehicle.licensePlate.toLowerCase().includes(term) ||
+          (vehicle.vehicleType || "").toLowerCase().includes(term)
+        );
       });
     }
     if (combinedFilters.productType) {
-      filtered = filtered.filter((vehicle) => vehicle.type.toLowerCase().includes(combinedFilters.productType));
+      filtered = filtered.filter((vehicle) => (vehicle.vehicleType || "").toLowerCase().includes(combinedFilters.productType));
     }
     return filtered;
   }, [vehicles, searchTerm, searchField, combinedFilters]);
 
-  const handleAddVehicle = (vehicle: Vehicle) => {
-    setVehicles((prev) => [vehicle, ...prev]);
+  const fetchVehicles = async () => {
+    const res = await fetch("/api/vehicles");
+    const data = await res.json();
+    setVehicles(
+      data.map((vehicle: any) => ({
+        id: vehicle.id,
+        licensePlate: vehicle.licensePlate,
+        vehicleType: vehicle.vehicleType || "-",
+        capacityLiters: typeof vehicle.capacityLiters === "number"
+          ? vehicle.capacityLiters
+          : vehicle.capacityLiters
+            ? Number(vehicle.capacityLiters)
+            : vehicle.capacity
+              ? Number(vehicle.capacity)
+              : undefined,
+        ownerName: vehicle.ownerName || "-",
+      }))
+    );
+  };
+
+  useEffect(() => {
+    fetchVehicles();
+  }, []);
+
+  const handleAddVehicle = async (vehicle: Omit<Vehicle, "id">) => {
+    await fetch("/api/vehicles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        licensePlate: vehicle.licensePlate,
+        vehicleType: vehicle.vehicleType,
+        capacityLiters: vehicle.capacityLiters,
+        ownerName: vehicle.ownerName,
+        isActive: true,
+      }),
+    });
+    await fetchVehicles();
+  };
+
+  const handleSaveVehicle = async (vehicle: Omit<Vehicle, "id">, id?: string) => {
+    if (id) {
+      await fetch(`/api/vehicles/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...vehicle,
+          capacityLiters: vehicle.capacityLiters,
+        }),
+      });
+    } else {
+      await handleAddVehicle(vehicle);
+    }
+    await fetchVehicles();
+  };
+
+  const handleDeleteVehicle = async (id: string) => {
+    await fetch(`/api/vehicles/${id}`, { method: "DELETE" });
+    await fetchVehicles();
+  };
+
+  const formatCapacity = (liters?: number) => {
+    if (!liters || Number.isNaN(liters)) return "-";
+    const kl = liters / 1000;
+    return `${kl % 1 === 0 ? kl.toFixed(0) : kl.toFixed(1)} KL`;
   };
 
   const columns = [
@@ -55,9 +114,35 @@ export default function VehiclesPage() {
         <p className="text-xs text-muted-foreground">{record.id}</p>
       </div>
     ) },
-    { key: "type", label: "Unit Type" },
-    { key: "capacity", label: "Capacity" },
-    { key: "owner", label: "Owner" },
+    { key: "vehicleType", label: "Unit Type" },
+    { key: "capacityLiters", label: "Capacity", render: (value: number) => formatCapacity(value) },
+    { key: "ownerName", label: "Owner" },
+    {
+      key: "actions",
+      label: "Actions",
+      render: (_: unknown, record: Vehicle) => (
+        <div className="flex gap-2">
+          <AddVehicleForm
+            vehicle={record}
+            onSubmit={handleSaveVehicle}
+            renderTrigger={(open) => (
+              <button
+                onClick={open}
+                className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground hover:border-primary/60 hover:text-primary transition"
+              >
+                Edit
+              </button>
+            )}
+          />
+          <button
+            onClick={() => handleDeleteVehicle(record.id)}
+            className="rounded-lg border border-destructive/40 px-3 py-1 text-xs text-destructive hover:bg-destructive/10 transition"
+          >
+            Delete
+          </button>
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -73,7 +158,7 @@ export default function VehiclesPage() {
         title="Vehicle Directory"
         description={`Katalog kendaraan pengangkut BBM (${filteredVehicles.length} dari ${vehicles.length})`}
         icon={Truck}
-        actions={<AddVehicleForm onAddVehicle={handleAddVehicle} />}
+        actions={<AddVehicleForm onSubmit={handleAddVehicle} />}
       >
         <Table columns={columns} data={filteredVehicles} />
       </InfoCard>
