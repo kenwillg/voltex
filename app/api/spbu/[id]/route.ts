@@ -19,9 +19,17 @@ export async function GET(_req: Request, { params }: Params) {
 
 export async function PUT(req: Request, { params }: Params) {
   const payload = await req.json();
+  const targetId = params.id || payload.id;
+
+  if (!targetId && !payload.code) {
+    return NextResponse.json({ error: "Missing SPBU identifier" }, { status: 400 });
+  }
 
   const spbu = await prisma.spbu.update({
-    where: { id: params.id },
+    where: {
+      ...(targetId ? { id: targetId } : {}),
+      ...(payload.code ? { code: payload.code } : {}),
+    },
     data: {
       code: payload.code,
       name: payload.name,
