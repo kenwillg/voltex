@@ -2,35 +2,33 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+type Params = { id: string };
+
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } },
+  ctx: { params: Promise<Params> }   // ⬅ params is a Promise now
 ) {
-  const driverId = params.id;
+  const { id } = await ctx.params;   // ⬅ unwrap it
+
+  if (!id) {
+    return NextResponse.json(
+      { ok: false, qr: null, reason: "Missing driver id" },
+      { status: 400 }
+    );
+  }
 
   const driver = await prisma.driver.findUnique({
-    where: { id: driverId },
+    where: { id },
   });
 
   if (!driver || !driver.driverCode) {
     return NextResponse.json(
       { ok: false, qr: null, reason: "Driver not found or driverCode missing" },
-      { status: 404 },
+      { status: 404 }
     );
   }
 
   const qr = `VOLTEX|DRIVER|${driver.id}|${driver.driverCode}`;
 
-  return NextResponse.json(
-    {
-      ok: true,
-      qr,
-      driver: {
-        id: driver.id,
-        name: driver.name,
-        driverCode: driver.driverCode,
-      },
-    },
-    { status: 200 },
-  );
+  return NextResponse.json({ ok: true, qr }, { status: 200 });
 }
