@@ -13,21 +13,11 @@ pnpm dev
 # or
 bun dev
 ```
+# BEFORE WE START:
+### DOWNLOAD AND IMPORT ANACONDA ENVIRONMENT [`HERE`](https://drive.google.com/file/d/13eEkJw-7OUPv7iH3_9yIMb7Uc-kZ9GOy/view?usp=sharing)
+### DOWNLOAD AND RUN THE PYTHON OCR AND QR SCANNER APP [`HERE`](https://drive.google.com/file/d/1M8QLYnjUb9Z0jXxsGDTGjeGu5gU2wiC7/view?usp=sharing)
+- Make sure to run it using: `& C:/Users/Kenneth/anaconda3/envs/ocr-voltex/python.exe d:/code/voltex-ocr/ocr.py` (the d:/code/... is where you place the ocr.py file. This is because .py files aren't like .ipynb where you can choose a kernel.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
 ## Deploy on Vercel
 
