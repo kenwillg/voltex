@@ -63,11 +63,26 @@ export default function GatePage() {
   }, [sessions]);
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ["websocket"] });
+    const socket = io(SOCKET_URL, {
+    transports: ["polling"],    // ← allow polling fallback
+    });
     socketRef.current = socket;
 
-    socket.on("connect", () => setSocketStatus("connected"));
-    socket.on("disconnect", () => setSocketStatus("disconnected"));
+    socket.on("connect", () => {
+    console.log("[gate] socket connected", socket.id);
+      setSocketStatus("connected");
+    });
+
+    socket.on("disconnect", (reason: string) => {
+      console.log("[gate] socket disconnected", reason);
+      setSocketStatus("disconnected");
+      setVideoFrame(null);
+    });
+    socket.on("connect_error", (err: any) => {
+    console.error("[gate] connect_error", err);
+    setSocketStatus("disconnected");
+    });
+
     socket.on("connection_status", (payload: { mode?: DetectionMode; message?: string }) => {
       if (payload?.mode) setDetectionMode(payload.mode);
       setControlMessage(payload?.message ?? null);
@@ -75,8 +90,10 @@ export default function GatePage() {
     socket.on("mode_changed", (payload: { mode?: DetectionMode }) => {
       if (payload?.mode) setDetectionMode(payload.mode);
     });
+
     socket.on("video_feed", (payload: { frame?: string }) => {
-      if (payload?.frame) setVideoFrame(payload.frame);
+      console.log("[gate] video_feed", !!payload?.frame);
+      if (payload?.frame) setVideoFrame(payload.frame);  // full data URL
     });
     socket.on("driver_detected", (payload: any) => {
       setPlateStatus({
@@ -128,6 +145,7 @@ export default function GatePage() {
 
     return () => {
       socket.disconnect();
+      socketRef.current = null;
     };
   }, []);
 
@@ -232,7 +250,7 @@ export default function GatePage() {
             <div className="overflow-hidden rounded-3xl border border-border/70 bg-background/70">
               {videoFrame ? (
                 <img
-                  src={`data:image/jpeg;base64,${videoFrame}`}
+                  src={videoFrame}
                   alt="Live gate camera feed"
                   className="h-full w-full object-cover"
                 />
