@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Badge,
   ChevronRight,
   CircleDashed,
   History,
@@ -14,8 +14,6 @@ import {
 import io, { Socket } from "socket.io-client";
 
 import { InfoCard } from "@/components/ui/card";
-import { useStatusContext } from "@/contexts/status-context";
-import { StatusManager } from "@/lib/base-component";
 
 type GateDirection = "entry" | "exit" | null;
 type DetectionMode = "plate" | "qr" | "idle";
@@ -41,8 +39,22 @@ interface QrStatus {
   timestamp?: string;
 }
 
+interface ExpectedOrder {
+  id: string;
+  spNumber: string;
+  driverName: string;
+  licensePlate: string;
+  scheduledAt: string;
+  product: string;
+  plannedLiters: string;
+  status: string;
+}
+
 const SOCKET_URL =
   process.env.NEXT_PUBLIC_OCR_SOCKET_URL ?? "http://localhost:8000";
+
+// how long a recognized plate must stay before auto-QR (seconds)
+const PLATE_LOCK_SECONDS = 2;
 
 const formatTime = (value?: string) =>
   value
@@ -61,37 +73,32 @@ const formatFullTime = (value?: string) =>
       })
     : "-";
 
-// how long a recognized plate must stay before auto-QR (seconds)
-const PLATE_LOCK_SECONDS = 2;
-
 export default function GatePage() {
-  const { sessions } = useStatusContext();
-
   const socketRef = useRef<Socket | null>(null);
   const [socketStatus, setSocketStatus] = useState<
     "connected" | "disconnected" | "connecting"
   >("connecting");
   const [gateDirection, setGateDirection] = useState<GateDirection>(null);
-  const [detectionMode, setDetectionMode] = useState<DetectionMode>("plate");
+  const [detectionMode, setDetectionMode] =
+    useState<DetectionMode>("plate");
   const [videoFrame, setVideoFrame] = useState<string | null>(null);
   const [plateStatus, setPlateStatus] = useState<PlateStatus | null>(null);
   const [qrStatus, setQrStatus] = useState<QrStatus | null>(null);
-  const [controlMessage, setControlMessage] = useState<string | null>(null);
-
-  // NEW: countdown in seconds (null = no countdown running)
-  const [plateLockCountdown, setPlateLockCountdown] = useState<number | null>(
+  const [controlMessage, setControlMessage] = useState<string | null>(
     null,
   );
 
-  const orderedSessions = useMemo(() => {
-    const copy = [...sessions];
-    return copy.sort((a, b) => {
-      const timeA = a.gate.entry ? new Date(a.gate.entry).getTime() : 0;
-      const timeB = b.gate.entry ? new Date(b.gate.entry).getTime() : 0;
-      return timeB - timeA;
-    });
-  }, [sessions]);
+  // countdown in seconds (null = no countdown running)
+  const [plateLockCountdown, setPlateLockCountdown] = useState<
+    number | null
+  >(null);
 
+  // expected orders for today (right panel)
+  const [expectedOrders, setExpectedOrders] = useState<ExpectedOrder[]>(
+    [],
+  );
+
+  // --- socket wiring ----------------------------------------------------------------
   useEffect(() => {
     const socket = io(SOCKET_URL, {
       transports: ["polling"],
@@ -121,12 +128,12 @@ export default function GatePage() {
         setControlMessage(payload?.message ?? null);
       },
     );
+
     socket.on("mode_changed", (payload: { mode?: DetectionMode }) => {
       if (payload?.mode) setDetectionMode(payload.mode);
     });
 
     socket.on("video_feed", (payload: { frame?: string }) => {
-      // console.log("[gate] video_feed", !!payload?.frame);
       if (payload?.frame) setVideoFrame(payload.frame);
     });
 
@@ -149,6 +156,8 @@ export default function GatePage() {
           "Plate recognized. Hold steady for 2 seconds to auto-switch to QR.",
       );
       setQrStatus(null);
+      // allow a new countdown to start
+      setPlateLockCountdown(null);
     });
 
     socket.on("plate_unrecognized", (payload: any) => {
@@ -202,6 +211,44 @@ export default function GatePage() {
     };
   }, []);
 
+  // --- expected orders (today only) -------------------------------------------------
+  useEffect(() => {
+    const loadExpected = async () => {
+      try {
+        const res = await fetch("/api/orders");
+        const data = await res.json();
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(todayStart);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const filtered: ExpectedOrder[] = data
+          .filter((o: any) => {
+            const when = new Date(o.scheduledAt);
+            return when >= todayStart && when < tomorrow;
+          })
+          .map((o: any) => ({
+            id: o.id,
+            spNumber: o.spNumber,
+            driverName: o.driver?.name ?? "-",
+            licensePlate: o.vehicle?.licensePlate ?? "-",
+            scheduledAt: o.scheduledAt,
+            product: o.product,
+            plannedLiters: o.plannedLiters?.toString() ?? "-",
+            status: o.status ?? "SCHEDULED",
+          }));
+
+        setExpectedOrders(filtered);
+      } catch (err) {
+        console.error("Failed to load expected orders", err);
+      }
+    };
+
+    loadExpected();
+  }, []);
+
+  // --- helpers ----------------------------------------------------------------------
   const requestModeChange = (mode: DetectionMode) => {
     if (!socketRef.current) return;
     socketRef.current.emit("set_mode", { mode });
@@ -222,7 +269,7 @@ export default function GatePage() {
     socketRef.current?.emit("start_stream");
   };
 
-  // Manual override (still allowed)
+  // Manual override
   const proceedToQrStep = () => {
     if (!plateStatus?.recognized) {
       setControlMessage("License plate must be validated before scanning QR.");
@@ -244,8 +291,7 @@ export default function GatePage() {
     requestModeChange(nextMode);
   };
 
-  // NEW: auto-advance effect: if we have a recognized plate in PLATE mode,
-  // hold it for 2s then switch to QR.
+  // --- auto-advance plate → QR ------------------------------------------------------
   useEffect(() => {
     if (!plateStatus?.recognized || detectionMode !== "plate") {
       setPlateLockCountdown(null);
@@ -256,11 +302,14 @@ export default function GatePage() {
     if (plateLockCountdown !== null) return;
 
     const startTime = performance.now();
-
     let frameId: number;
+
     const tick = () => {
       const elapsedMs = performance.now() - startTime;
-      const remainingMs = Math.max(0, PLATE_LOCK_SECONDS * 1000 - elapsedMs);
+      const remainingMs = Math.max(
+        0,
+        PLATE_LOCK_SECONDS * 1000 - elapsedMs,
+      );
       const remainingSec = remainingMs / 1000;
       setPlateLockCountdown(remainingSec);
 
@@ -288,7 +337,8 @@ export default function GatePage() {
           1,
           Math.max(
             0,
-            (PLATE_LOCK_SECONDS - plateLockCountdown) / PLATE_LOCK_SECONDS,
+            (PLATE_LOCK_SECONDS - plateLockCountdown) /
+              PLATE_LOCK_SECONDS,
           ),
         )
       : 0;
@@ -301,6 +351,7 @@ export default function GatePage() {
     return "bg-rose-500/10 text-rose-500";
   })();
 
+  // --- UI ---------------------------------------------------------------------------
   return (
     <div className="space-y-8">
       {/* header */}
@@ -447,16 +498,14 @@ export default function GatePage() {
                     {plateStatus?.message ?? "Awaiting plate detection."}
                   </p>
 
-                  {/* NEW: 2s locking bar */}
+                  {/* 2s locking bar */}
                   {plateStatus?.recognized &&
                     detectionMode === "plate" &&
                     plateLockCountdown !== null && (
                       <div className="mt-3 space-y-1">
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                           <span>Locking plate...</span>
-                          <span>
-                            {plateLockCountdown.toFixed(1)}s
-                          </span>
+                          <span>{plateLockCountdown.toFixed(1)}s</span>
                         </div>
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/70">
                           <div
@@ -538,67 +587,68 @@ export default function GatePage() {
           </div>
         </InfoCard>
 
-        {/* right: live gate timeline */}
+        {/* right: expected orders for today */}
         <InfoCard
-          title="Live Gate Timeline"
-          description="Latest telemetry for every truck registered on today’s schedule"
+          title="Expected Arrivals Today"
+          description="All trucks with a scheduled order for today"
           icon={History}
         >
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
-                  <th className="pb-3 pr-4 font-medium">Order</th>
+                  <th className="pb-3 pr-4 font-medium">SP Number</th>
                   <th className="pb-3 pr-4 font-medium">Driver</th>
+                  <th className="pb-3 pr-4 font-medium">Vehicle</th>
+                  <th className="pb-3 pr-4 font-medium">Product</th>
+                  <th className="pb-3 pr-4 font-medium">Planned</th>
+                  <th className="pb-3 pr-4 font-medium">Scheduled</th>
                   <th className="pb-3 pr-4 font-medium">Status</th>
-                  <th className="pb-3 pr-4 font-medium">Gate In</th>
-                  <th className="pb-3 pr-4 font-medium">Gate Out</th>
-                  <th className="pb-3 pr-4 font-medium">Fuel Slot</th>
                 </tr>
               </thead>
               <tbody>
-                {orderedSessions.map((session) => (
+                {expectedOrders.map((o) => (
                   <tr
-                    key={session.orderId}
+                    key={o.id}
                     className="border-t border-border/60 text-sm"
                   >
                     <td className="py-3 pr-4 font-semibold text-foreground">
-                      {session.orderId}
+                      {o.spNumber}
                     </td>
                     <td className="py-3 pr-4">
                       <div className="font-medium text-foreground">
-                        {session.driverName}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {session.licensePlate}
+                        {o.driverName}
                       </div>
                     </td>
-                    <td className="py-3 pr-4">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${StatusManager.getStatusBadgeClass(
-                          session.status,
-                        )}`}
-                      >
-                        {
-                          StatusManager.getStatusConfig(session.status)
-                            .label
-                        }
-                      </span>
+                    <td className="py-3 pr-4 text-muted-foreground">
+                      {o.licensePlate}
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">
-                      {formatTime(session.gate.entry)}
+                      {o.product}
                     </td>
                     <td className="py-3 pr-4 text-muted-foreground">
-                      {formatTime(session.gate.exit)}
+                      {o.plannedLiters} L
+                    </td>
+                    <td className="py-3 pr-4 text-muted-foreground">
+                      {formatFullTime(o.scheduledAt)}
                     </td>
                     <td className="py-3 pr-4">
-                      <span className="inline-flex items-center gap-2 text-xs font-semibold text-foreground">
-                        <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                        {session.fuel.slot}
+                      <span className="inline-flex rounded-full bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {o.status}
                       </span>
                     </td>
                   </tr>
                 ))}
+                {expectedOrders.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="py-6 text-center text-xs text-muted-foreground"
+                    >
+                      No scheduled orders for today yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

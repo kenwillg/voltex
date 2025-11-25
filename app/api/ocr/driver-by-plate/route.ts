@@ -1,181 +1,156 @@
-// app/api/ocr/driver-by-plate/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { LoadStatus } from "@prisma/client";
 
-// --- Helpers ------------------------------------------------------
-
-function normalizePlate(raw: string): string {
-  // Strip everything except letters/digits, uppercase
-  return raw.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+function normalizePlate(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-function getTodayKey() {
-  // Just date part YYYY-MM-DD in local server time
-  return new Date().toISOString().slice(0, 10);
+// B1067NBF -> "B 1067 NBF"
+function normalizedToPretty(normalized: string): string {
+  const m = normalized.match(/^([A-Z]+)(\d+)([A-Z]+)?$/);
+  if (!m) return normalized; // fallback, just return as-is
+
+  const [, prefix, digits, suffix] = m;
+  return suffix ? `${prefix} ${digits} ${suffix}` : `${prefix} ${digits}`;
 }
 
-function getTodayRange() {
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
-// Roughly "active" load-session statuses
-const ACTIVE_STATUSES: LoadStatus[] = [
-  "SCHEDULED",
-  "GATE_IN",
-  "QUEUED",
-  "LOADING",
-];
-
-// --- Simple in-memory cache for today’s schedule -------------------
-
-type CachedItem = {
-  plateNorm: string;
-  orderId: string;
-  driverId: string;
-  driverName: string;
-  driverCode: string | null;
-  vehicleId: string;
-  licensePlate: string;
-  loadSessionId: string | null;
-  loadStatus: LoadStatus | null;
-};
-
-let cachedDateKey: string | null = null;
-let cachedSchedule: CachedItem[] = [];
-
-async function refreshTodaySchedule() {
-  const { start, end } = getTodayRange();
-  const dateKey = getTodayKey();
-
-  // Load today’s orders with driver + vehicle + loadSessions
-  const orders = await prisma.order.findMany({
-    where: {
-      scheduledAt: {
-        gte: start,
-        lte: end,
-      },
-    },
-    include: {
-      driver: true,
-      vehicle: true,
-      loadSessions: {
-        orderBy: { createdAt: "desc" },
-        take: 1, // latest session
-      },
-    },
-  });
-
-  cachedSchedule = orders
-    .filter((o) => !!o.vehicle)
-    .map((o) => {
-      const plateNorm = normalizePlate(o.vehicle!.licensePlate);
-      const session = o.loadSessions[0] ?? null;
-
-      return {
-        plateNorm,
-        orderId: o.id,
-        driverId: o.driverId,
-        driverName: o.driver.name,
-        driverCode: o.driver.driverCode,
-        vehicleId: o.vehicleId,
-        licensePlate: o.vehicle!.licensePlate,
-        loadSessionId: session?.id ?? null,
-        loadStatus: session?.status ?? null,
-      };
-    });
-
-  cachedDateKey = dateKey;
-  console.log(
-    `[ocr] refreshed schedule cache for ${dateKey}, ${cachedSchedule.length} vehicles`,
-  );
+function endOfToday() {
+  const d = new Date();
+  d.setHours(23, 59, 59, 999);
+  return d;
 }
-
-async function getTodaySchedule(): Promise<CachedItem[]> {
-  const todayKey = getTodayKey();
-  if (cachedDateKey !== todayKey || cachedSchedule.length === 0) {
-    await refreshTodaySchedule();
-  }
-  return cachedSchedule;
-}
-
-// Fuzzy-ish match: accept exact match, or missing/extra one char at the end
-function platesRoughlyMatch(dbPlateNorm: string, ocrPlateNorm: string): boolean {
-  if (dbPlateNorm === ocrPlateNorm) return true;
-
-  // Example: DB = B1067NBF, OCR = B1067NB  (missing F)
-  if (
-    dbPlateNorm.startsWith(ocrPlateNorm) ||
-    ocrPlateNorm.startsWith(dbPlateNorm)
-  ) {
-    const diff = Math.abs(dbPlateNorm.length - ocrPlateNorm.length);
-    if (diff <= 1) return true;
-  }
-
-  return false;
-}
-
-// --- GET handler --------------------------------------------------
 
 export async function GET(req: NextRequest) {
   const rawPlate = req.nextUrl.searchParams.get("plate") ?? "";
   console.log("driver-by-plate lookup (raw):", rawPlate);
 
   const plateNorm = normalizePlate(rawPlate);
+  console.log("driver-by-plate lookup (normalized):", plateNorm);
+
   if (!plateNorm) {
-    return NextResponse.json(
-      { driver: null, loadSession: null },
-      { status: 200 },
-    );
-  }
-
-  const schedule = await getTodaySchedule();
-
-  const match = schedule.find((item) =>
-    platesRoughlyMatch(item.plateNorm, plateNorm),
-  );
-
-  if (!match) {
-    console.log(
-      `driver-by-plate: no match for OCR "${plateNorm}" among ${schedule.length} vehicles`,
-    );
     return NextResponse.json(
       {
         driver: null,
         loadSession: null,
-        reason: "No scheduled vehicle for this plate today",
+        message: "No plate detected",
       },
       { status: 200 },
     );
   }
 
-  console.log(
-    `driver-by-plate: matched OCR "${plateNorm}" -> "${match.licensePlate}" (order ${match.orderId})`,
-  );
+  const todayStart = startOfToday();
+  const todayEnd = endOfToday();
+
+  // ---------- FAST PATH: strict match on formatted plate ----------
+  const prettyPlate = normalizedToPretty(plateNorm);
+
+  let matchedOrder =
+    await prisma.order.findFirst({
+      where: {
+        scheduledAt: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+        vehicle: {
+          licensePlate: {
+            equals: prettyPlate,
+          },
+        },
+      },
+      include: {
+        driver: true,
+        vehicle: true,
+        loadSessions: true,
+      },
+      orderBy: {
+        scheduledAt: "asc",
+      },
+    });
+
+  // ---------- FALLBACK: fuzzy JS match over today's orders ----------
+  if (!matchedOrder) {
+    console.log(
+      "[driver-by-plate] strict match failed, falling back to fuzzy scan...",
+    );
+
+    const todaysOrders = await prisma.order.findMany({
+      where: {
+        scheduledAt: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+      },
+      include: {
+        driver: true,
+        vehicle: true,
+        loadSessions: true,
+      },
+    });
+
+    let fuzzyMatch: (typeof todaysOrders)[number] | null = null;
+
+    for (const order of todaysOrders) {
+      const dbPlateNorm = normalizePlate(order.vehicle?.licensePlate);
+      if (!dbPlateNorm) continue;
+
+      // exact normalized match
+      if (dbPlateNorm === plateNorm) {
+        fuzzyMatch = order;
+        break;
+      }
+
+      // soft match if OCR misses/extra chars
+      if (
+        !fuzzyMatch &&
+        (dbPlateNorm.startsWith(plateNorm) ||
+          plateNorm.startsWith(dbPlateNorm))
+      ) {
+        fuzzyMatch = order;
+        // don't break; we still want to allow an exact match later in the loop
+      }
+    }
+
+    matchedOrder = fuzzyMatch;
+  }
+
+  // ---------- No match at all ----------
+  if (!matchedOrder) {
+    return NextResponse.json(
+      {
+        driver: null,
+        loadSession: null,
+        message: `Unscheduled / unknown vehicle: ${plateNorm}`,
+      },
+      { status: 200 },
+    );
+  }
+
+  const { driver, vehicle, loadSessions } = matchedOrder;
 
   return NextResponse.json(
     {
-      driver: {
-        id: match.driverId,
-        name: match.driverName,
-        driverCode: match.driverCode,
-        vehicle: {
-          id: match.vehicleId,
-          licensePlate: match.licensePlate,
-        },
-      },
-      loadSession: match.loadSessionId
+      driver: driver
         ? {
-            id: match.loadSessionId,
-            orderId: match.orderId,
-            status: match.loadStatus,
+            id: driver.id,
+            name: driver.name,
+            driverCode: driver.driverCode,
+            vehicle: {
+              id: vehicle?.id ?? null,
+              licensePlate: vehicle?.licensePlate ?? "",
+            },
           }
         : null,
+      loadSession: loadSessions[0] ?? null,
+      message: driver
+        ? `Welcome, ${driver.name}!`
+        : `Vehicle ${vehicle?.licensePlate ?? prettyPlate} scheduled for today.`,
     },
     { status: 200 },
   );
