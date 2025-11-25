@@ -13,6 +13,8 @@ type ActivityRow = {
   spNumber: string;
   licensePlate: string;
   driverName: string;
+  product: string;
+  plannedLiters: number;
   gateIn: string;
   loading: string;
   gateOut: string;
@@ -40,6 +42,8 @@ export default function LoadSessionsPage() {
         spNumber: session.order?.spNumber || "-",
         licensePlate: session.order?.vehicle?.licensePlate || "-",
         driverName: session.order?.driver?.name || "-",
+        product: session.order?.product || "-",
+        plannedLiters: Number(session.order?.plannedLiters || 0),
         gateIn: formatTime(session.gateInAt),
         loading: formatTime(session.loadingStartAt),
         gateOut: formatTime(session.gateOutAt),

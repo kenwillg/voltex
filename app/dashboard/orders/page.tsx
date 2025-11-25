@@ -17,7 +17,7 @@ interface Order {
   driverDbId?: string;
   vehicleId?: string;
   product: string;
-  planned: string;
+  plannedLiters: number;
   schedule: string;
   status: string;
   spbuId?: string;
@@ -31,6 +31,7 @@ export default function OrdersPage() {
   const [driverOptions, setDriverOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
   const [vehicleOptions, setVehicleOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
   const [spbuOptions, setSpbuOptions] = useState<Array<{ value: string; label: string; meta?: Record<string, string> }>>([]);
+  const [productOptions, setProductOptions] = useState<Array<{ id: string; name: string }>>([]);
   const combinedFilters = useCombinedFilters();
   const pathname = usePathname();
 
@@ -49,7 +50,7 @@ export default function OrdersPage() {
       driverId: order.driver?.driverCode || order.driverId,
       driverDbId: order.driver?.id || order.driverId,
       product: order.product,
-      planned: `${Number(order.plannedLiters || 0).toLocaleString("id-ID")} L`,
+      plannedLiters: Number(order.plannedLiters || 0),
       schedule: schedule.toLocaleString("id-ID", {
         day: "numeric",
         month: "long",
@@ -67,11 +68,12 @@ export default function OrdersPage() {
 
   useEffect(() => {
     const load = async () => {
-      const [driversRes, vehiclesRes, spbuRes, ordersRes] = await Promise.all([
+      const [driversRes, vehiclesRes, spbuRes, ordersRes, productsRes] = await Promise.all([
         fetch("/api/drivers"),
         fetch("/api/vehicles"),
         fetch("/api/spbu"),
         fetch("/api/orders"),
+        fetch("/api/products"),
       ]);
 
       const driverData = await driversRes.json();
@@ -103,6 +105,13 @@ export default function OrdersPage() {
 
       const orderData = await ordersRes.json();
       setOrders(orderData.map(mapOrderFromApi));
+
+      const productsData = await productsRes.json();
+      if (Array.isArray(productsData) && productsData.length) {
+        setProductOptions(
+          productsData.map((p: any) => ({ id: p.id ?? p.name, name: p.name }))
+        );
+      }
     };
 
     load();
@@ -181,7 +190,7 @@ export default function OrdersPage() {
         vehicleId,
         driverId,
         spbuId,
-        plannedLiters: newOrder.planned,
+        plannedLiters: newOrder.plannedLiters,
         scheduledAt: newOrder.schedule,
         destinationName: newOrder.destinationName,
         destinationAddress: newOrder.destinationAddress,
@@ -228,7 +237,11 @@ export default function OrdersPage() {
       );
     }},
     { key: "product", label: "Product" },
-    { key: "planned", label: "Planned" },
+    {
+      key: "plannedLiters",
+      label: "Planned",
+      render: (value: number) => `${Number(value || 0).toLocaleString("id-ID")} L`,
+    },
     {
       key: "destinationName",
       label: "Tujuan SPBU",
@@ -260,6 +273,7 @@ export default function OrdersPage() {
             onAddOrder={handleAddOrder}
             onRepeatOrder={handleRepeatOrder}
             existingOrder={record}
+            productOptions={productOptions}
             driverOptions={driverOptions}
             vehicleOptions={vehicleOptions}
             spbuOptions={spbuOptions}
@@ -290,6 +304,7 @@ export default function OrdersPage() {
         actions={
           <AddOrderForm
             onAddOrder={handleAddOrder}
+            productOptions={productOptions}
             driverOptions={driverOptions}
             vehicleOptions={vehicleOptions}
             spbuOptions={spbuOptions}

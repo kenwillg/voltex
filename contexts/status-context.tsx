@@ -72,72 +72,18 @@ interface StatusContextValue {
 
 const StatusContext = createContext<StatusContextValue | null>(null);
 
-const initialSessions: DriverSession[] = [
-  {
-    orderId: "SP-240503",
-    driverId: "DRV-0142",
-    driverName: "Satria Ramdhan",
-    driverEmail: "satria.ramdhan@example.com",
-    phone: "+62 811-4456-782",
-    company: "PT Voltex Logistics",
-    licensePlate: "B 7261 JP",
-    product: "Pertalite",
-    plannedVolume: "8,200 L",
-    status: "SCHEDULED",
-    gate: {},
-    fuel: {
-      slot: "Bay 3A",
-    },
-    qr: {},
-  },
-  {
-    orderId: "SP-240502",
-    driverId: "DRV-0128",
-    driverName: "Rahmat Santoso",
-    driverEmail: "rahmat.santoso@example.com",
-    phone: "+62 812-8890-123",
-    company: "PT Energi Sentral",
-    licensePlate: "B 9087 TX",
-    product: "Solar",
-    plannedVolume: "7,500 L",
-    status: "LOADING",
-    gate: {
-      entry: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    },
-    fuel: {
-      slot: "Bay 1B",
-      pinVerified: true,
-      startedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-    },
-    qr: {},
-  },
-  {
-    orderId: "SP-240501",
-    driverId: "DRV-0105",
-    driverName: "Adi Nugroho",
-    driverEmail: "adi.nugroho@example.com",
-    phone: "+62 813-7756-909",
-    company: "PT Armada Prima",
-    licensePlate: "B 7812 QK",
-    product: "Pertamax",
-    plannedVolume: "8,000 L",
-    status: "GATE_OUT",
-    gate: {
-      entry: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      exit: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-    },
-    fuel: {
-      slot: "Bay 2C",
-      startedAt: new Date(Date.now() - 2.5 * 60 * 60 * 1000).toISOString(),
-      finishedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-    },
-    qr: {},
-  },
-];
+const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: "Asia/Jakarta",
+};
+
+const initialSessions: DriverSession[] = [];
 
 const formatTime = (dateIso?: string) => {
   if (!dateIso) return "-";
-  return new Date(dateIso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  return new Date(dateIso).toLocaleTimeString("id-ID", TIME_OPTIONS);
 };
 
 export function StatusProvider({ children }: { children: ReactNode }) {

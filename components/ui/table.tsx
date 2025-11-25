@@ -196,6 +196,8 @@ interface ActivityTableProps {
     spNumber: string;
     licensePlate: string;
     driverName: string;
+    product?: string;
+    plannedLiters?: number;
     gateIn: string;
     loading: string;
     gateOut: string;
@@ -217,6 +219,13 @@ export function ActivityTable({ data, className }: ActivityTableProps) {
       <span className="text-primary">{value}</span>
     )},
     { key: "driverName", label: "Driver" },
+    { key: "product", label: "Product" },
+    {
+      key: "plannedLiters",
+      label: "Planned",
+      render: (value: number | undefined) =>
+        value !== undefined ? `${Number(value || 0).toLocaleString("id-ID")} L` : "-",
+    },
     { key: "gateIn", label: "Gate In" },
     { key: "loading", label: "Loading" },
     { key: "gateOut", label: "Gate Out" },
@@ -274,6 +283,7 @@ interface DriversTableProps {
   data: Array<{
     id: string;
     name: string;
+    email?: string;
     phone: string;
     license: string;
     isActive: boolean;
@@ -290,6 +300,7 @@ export function DriversTable({ data, className }: DriversTableProps) {
       <span className="font-semibold text-foreground">{value}</span>
     )},
     { key: "name", label: "Name" },
+    { key: "email", label: "Email", className: "text-muted-foreground" },
     { key: "phone", label: "Phone", className: "text-muted-foreground" },
     { key: "license", label: "License" },
     { key: "isActive", label: "Status", render: (value) => (
