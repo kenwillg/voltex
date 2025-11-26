@@ -70,7 +70,8 @@ export async function GET(req: NextRequest) {
     const todayStart = startOfToday();
     const todayEnd = endOfToday();
 
-    // 2) Try to find *today's* order first
+    // 2) Get today's order for this driver,
+    //    and only the latest *active* loadSession (SCHEDULED / GATE_IN)
     const todayOrder = await prisma.order.findFirst({
       where: {
         driverId: driver.id,
@@ -81,18 +82,30 @@ export async function GET(req: NextRequest) {
       },
       include: {
         vehicle: true,
-        loadSessions: true,
+        loadSessions: {
+          where: {
+            status: { in: ["SCHEDULED", "GATE_IN"] },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
       orderBy: { scheduledAt: "asc" },
     });
 
-    // 3) If none for today, fall back to latest order (for debugging / safety)
+    // 3) If none for today, fall back to latest order (debug/safety)
     const fallbackOrder = !todayOrder
       ? await prisma.order.findFirst({
           where: { driverId: driver.id },
           include: {
             vehicle: true,
-            loadSessions: true,
+            loadSessions: {
+              where: {
+                status: { in: ["SCHEDULED", "GATE_IN"] },
+              },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
           },
           orderBy: { scheduledAt: "desc" },
         })
@@ -100,7 +113,12 @@ export async function GET(req: NextRequest) {
 
     const order = todayOrder ?? fallbackOrder;
 
-    console.log("[qr] todayOrder =", todayOrder?.id, "fallbackOrder =", fallbackOrder?.id);
+    console.log(
+      "[qr] todayOrder =",
+      todayOrder?.id,
+      "fallbackOrder =",
+      fallbackOrder?.id,
+    );
 
     if (!order) {
       return NextResponse.json(
@@ -118,8 +136,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // If we fell back to a non-today order, be explicit in reason
     if (!todayOrder) {
+      // Fell back to non-today order
       return NextResponse.json(
         {
           valid: false,
@@ -138,9 +156,10 @@ export async function GET(req: NextRequest) {
     const now = new Date();
 
     // 4) Ensure/load a LoadSession and mark it as GATE_IN
-    let session = order.loadSessions[0];
+    let session = order.loadSessions[0] ?? null;
 
     if (!session) {
+      // no active session yet → create and mark as GATE_IN
       session = await prisma.loadSession.create({
         data: {
           orderId: order.id,
@@ -149,6 +168,7 @@ export async function GET(req: NextRequest) {
         },
       });
     } else if (!session.gateInAt) {
+      // has a session, but first time gate-in
       session = await prisma.loadSession.update({
         where: { id: session.id },
         data: {
@@ -157,6 +177,7 @@ export async function GET(req: NextRequest) {
         },
       });
     } else if (session.status === "SCHEDULED") {
+      // weird state: gateInAt set but status not updated
       session = await prisma.loadSession.update({
         where: { id: session.id },
         data: {
