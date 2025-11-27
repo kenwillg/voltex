@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Fuel, HandHelping, ScanQrCode } from "lucide-react";
@@ -226,7 +226,7 @@ export default function FuelBayKioskPage() {
               >
                 {sessions.map((session) => (
                   <option key={session.orderId} value={session.orderId}>
-                    {session.orderId} — {session.driverName}
+                    {session.orderId} ΓÇö {session.driverName}
                   </option>
                 ))}
               </select>
@@ -262,7 +262,7 @@ export default function FuelBayKioskPage() {
               <p className="text-lg font-semibold tracking-[0.3em] text-white">{currentSession.licensePlate}</p>
               <div className="flex flex-wrap gap-3 text-xs">
                 <span className="rounded-full bg-white/10 px-3 py-1 text-white">
-                  {currentSession.product} · {currentSession.plannedVolume}
+                  {currentSession.product} ┬╖ {currentSession.plannedVolume}
                 </span>
                 <span
                   className={`rounded-full px-3 py-1 font-semibold uppercase tracking-widest ${StatusManager.getStatusBadgeClass(currentSession.status)}`}

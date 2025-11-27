@@ -68,39 +68,6 @@ async function handleLoadingEvent(req: NextRequest, bayId: string) {
     );
   }
 
-  // 2) Optional: validasi bahwa slot itu ada di JSONB `bay.slots`
-  //    Contoh data:
-  //    [{"slot":"1A","product":"Premium","capacityLiters":1000}, ...]
-  let slotConfig: any | null = null;
-  if (bay.slots) {
-    try {
-      const slotsArray = Array.isArray(bay.slots)
-        ? (bay.slots as any[])
-        : (JSON.parse(bay.slots as any) as any[]);
-
-      slotConfig = slotsArray.find(
-        (s: any) =>
-          (s.slot ?? s.Slot ?? "").toString() === slot.toString(),
-      );
-    } catch (e) {
-      // kalau JSON parse gagal, kita biarkan saja & tidak blokir
-      console.warn("[loading] Failed to parse bay.slots JSON", e);
-    }
-  }
-
-  if (!slotConfig) {
-    // kalau kamu mau strict, aktifkan ini:
-    // return NextResponse.json(
-    //   {
-    //     message: `Slot ${slot} is not configured for this bay`,
-    //   },
-    //   { status: 400 },
-    // );
-    console.warn(
-      `[loading] Slot ${slot} tidak ditemukan di bay.slots, lanjut saja...`,
-    );
-  }
-
   // 3) Cari loadSession aktif untuk bay ini
   const loadSession = await prisma.loadSession.findFirst({
     where: {

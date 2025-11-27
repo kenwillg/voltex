@@ -14,8 +14,8 @@ model Bay {
   isActive     Boolean       @default(true) @map("is_active")
   family       String?
   description  String?
+  product      String?
   capacityLiters Int?        @map("capacity_liters")
-  slots        Json?
   loadSessions LoadSession[]
 
   @@map("bays")

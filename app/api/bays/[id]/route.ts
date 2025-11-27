@@ -45,10 +45,10 @@ export async function PUT(req: Request, ctx: ParamsPromise) {
       },
       data: {
         name: payload.name,
+        product: payload.product || null,
         family: payload.family || null,
         description: payload.description || null,
         capacityLiters: Number.isFinite(capacityLiters) ? capacityLiters : null,
-        slots: payload.slots || null,
         isActive: payload.isActive ?? true,
       },
     });

@@ -5,7 +5,7 @@ import { Clock, Fuel, GaugeCircle, Users, Warehouse, Plus } from "lucide-react";
 import { InfoCard } from "@/components/ui/card";
 import { useStatusContext } from "@/contexts/status-context";
 import { StatusManager } from "@/lib/base-component";
-import BayForm, { BayPayload, BaySlot } from "@/components/forms/bay-form";
+import BayForm, { BayPayload } from "@/components/forms/bay-form";
 
 const formatTime = (value?: string) =>
   value
@@ -30,18 +30,12 @@ const getBayName = (slot?: string) => {
   return match ? `Bay ${match[1]}` : undefined;
 };
 
-type BaySlotConfig = {
-  slot: string;
-  product: string;
-  capacity: number;
-};
-
 type BayConfiguration = {
   bay: string;
+  product?: string;
   family: string;
   description: string;
   capacity: number;
-  slots: BaySlotConfig[];
   id?: string;
 };
 
@@ -68,16 +62,10 @@ export default function FuelBayPage() {
           data.map((bay: any) => ({
             id: bay.id,
             bay: bay.name,
+            product: bay.product,
             family: bay.family || "Flexible",
             description: bay.description || "-",
             capacity: bay.capacityLiters || 0,
-            slots: Array.isArray(bay.slots)
-              ? bay.slots.map((slot: any) => ({
-                  slot: slot.slot,
-                  product: slot.product,
-                  capacity: slot.capacityLiters ?? 0,
-                }))
-              : [],
           })),
         );
       } else {
@@ -144,34 +132,24 @@ export default function FuelBayPage() {
   const defaultBayConfigs: BayConfiguration[] = [
     {
       bay: "Bay 1",
+      product: "Pertalite",
       family: "Bensin",
       description: "Dedicated gasoline manifold",
       capacity: 24_000,
-      slots: [
-        { slot: "1A", product: "Pertalite", capacity: 8_000 },
-        { slot: "1B", product: "Pertamax", capacity: 8_000 },
-        { slot: "1C", product: "Pertamax Turbo", capacity: 8_000 },
-      ],
     },
     {
       bay: "Bay 2",
+      product: "Solar",
       family: "Diesel / Solar",
       description: "High-flow diesel pumps",
       capacity: 20_000,
-      slots: [
-        { slot: "2A", product: "Solar", capacity: 10_000 },
-        { slot: "2B", product: "Dexlite", capacity: 10_000 },
-      ],
     },
     {
       bay: "Bay 3",
+      product: "Pertalite",
       family: "Flexible",
       description: "Backup manifold, configurable per shift",
       capacity: 18_000,
-      slots: [
-        { slot: "3A", product: "Pertalite", capacity: 9_000 },
-        { slot: "3B", product: "Solar", capacity: 9_000 },
-      ],
     },
   ];
 
@@ -261,23 +239,17 @@ export default function FuelBayPage() {
   }, [bayConfigurations, terminalCapacity, orders]);
 
   const handleSaveBay = async (payload: BayPayload, id?: string) => {
-    const slots = payload.slots?.map((slot) => ({
-      slot: slot.slot,
-      product: slot.product,
-      capacityLiters: slot.capacityLiters,
-    }));
-
     if (id) {
       await fetch(`/api/bays/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, slots }),
+        body: JSON.stringify(payload),
       });
     } else {
       await fetch("/api/bays", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, slots }),
+        body: JSON.stringify(payload),
       });
     }
     await loadBays();
@@ -326,18 +298,18 @@ export default function FuelBayPage() {
               label="Terpakai Hari Ini"
               value={formatVolumeLabel(capacityTotals.totalConsumed)}
             />
-            <Metric
-              label="Bay 1A"
-              value={bay1AOccupied ? "Occupied" : "Idle"}
-            />
+          <Metric
+            label="Sensor Bay"
+            value={bay1AOccupied ? "Occupied" : "Idle"}
+          />
           </div>
-        </InfoCard>
+      </InfoCard>
 
-        <InfoCard
-          title="Fuel Bay Configuration"
-          description="Tambahkan bay, kapasitas, dan slot produk"
-          icon={Warehouse}
-          actions={
+      <InfoCard
+        title="Fuel Bay Configuration"
+        description="Tambahkan bay, kapasitas total, dan produk utama"
+        icon={Warehouse}
+        actions={
             <BayForm
               onSubmit={handleSaveBay}
               renderTrigger={(open) => (
@@ -373,7 +345,6 @@ export default function FuelBayPage() {
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {config.slots.length} slot •{" "}
                       {formatVolumeLabel(config.capacity)}
                     </span>
                   </div>
@@ -381,41 +352,11 @@ export default function FuelBayPage() {
                     {config.description}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Temperatur: -- °C
+                    Produk: <span className="font-semibold text-foreground">{config.product || "-"}</span>
                   </p>
-                  <div className="mt-3 space-y-2 text-sm">
-                    {config.slots.map((slot) => (
-                      <div
-                        key={`${config.bay}-${slot.slot}`}
-                        className="flex items-center justify-between rounded-xl border border-border/60 px-3 py-2"
-                      >
-                        <div>
-                          <span className="block font-semibold text-foreground">
-                            Bay {slot.slot}
-                          </span>
-                          <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
-                            {slot.product}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {formatVolumeLabel(slot.capacity)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  {/* Tiny indicator for Bay 1A if you want */}
-                  {config.bay === "Bay 1" && (
-                    <p className="mt-2 text-[11px] text-muted-foreground">
-                      Slot 1A status:{" "}
-                      <span
-                        className={
-                          bay1AOccupied ? "text-emerald-500" : "text-muted-foreground"
-                        }
-                      >
-                        {bay1AOccupied ? "TRUCK PRESENT" : "Idle"}
-                      </span>
-                    </p>
-                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Temperatur: -- C
+                  </p>
                 </div>
               ))}
             </div>
@@ -461,7 +402,7 @@ export default function FuelBayPage() {
             value={formatVolumeLabel(capacityTotals.totalConsumed)}
           />
           <Metric
-            label="Bay 1A"
+            label="Sensor Bay"
             value={bay1AOccupied ? "Occupied" : "Idle"}
           />
         </div>
@@ -586,7 +527,7 @@ export default function FuelBayPage() {
                     />
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {plannedPct}% terpakai •{" "}
+                    {plannedPct}% terpakai -{" "}
                     {formatVolumeLabel(usage.active)} ({activePct}%) sedang
                     berlangsung
                   </p>
@@ -598,8 +539,8 @@ export default function FuelBayPage() {
       </InfoCard>
 
       <InfoCard
-        title="Bay & product assignment"
-        description="Mapping slot fisik terhadap jenis BBM yang tersedia"
+        title="Bay information"
+        description="Ringkasan setiap bay tanpa rincian slot"
         icon={Warehouse}
       >
         <div className="grid gap-4 md:grid-cols-3">
@@ -630,7 +571,6 @@ export default function FuelBayPage() {
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {config.slots.length} slot •{" "}
                       {formatVolumeLabel(config.capacity)}
                     </span>
                   </div>
@@ -638,22 +578,11 @@ export default function FuelBayPage() {
                     {config.description}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Temperatur: -- °C
+                    Produk: <span className="font-semibold text-foreground">{config.product || "-"}</span>
                   </p>
-                  {config.bay === "Bay 1" && (
-                    <p className="mt-1 text-[11px]">
-                      Slot 1A:{" "}
-                      <span
-                        className={
-                          bay1AOccupied
-                            ? "text-emerald-500"
-                            : "text-muted-foreground"
-                        }
-                      >
-                        {bay1AOccupied ? "TRUCK PRESENT" : "Idle"}
-                      </span>
-                    </p>
-                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Temperatur: -- C
+                  </p>
                   <div className="mt-3 rounded-2xl border border-dashed border-border/60 p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
                       Terjadwal
@@ -668,40 +597,16 @@ export default function FuelBayPage() {
                       />
                     </div>
                   </div>
-                  <div className="mt-4 space-y-2 text-sm">
-                    {config.slots.map((slot) => (
-                      <div
-                        key={slot.slot}
-                        className="flex items-center justify-between rounded-2xl border border-border/60 px-3 py-2"
-                      >
-                        <div>
-                          <span className="block font-semibold text-foreground">
-                            Bay {slot.slot}
-                          </span>
-                          <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
-                            {slot.product}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {formatVolumeLabel(slot.capacity)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
                   {config.id && (
                     <div className="mt-3 flex gap-2">
                       <BayForm
                         bay={{
                           id: config.id,
                           name: config.bay,
+                          product: config.product,
                           family: config.family,
                           description: config.description,
                           capacityLiters: config.capacity,
-                          slots: config.slots.map((s) => ({
-                            slot: s.slot,
-                            product: s.product,
-                            capacityLiters: s.capacity,
-                          })) as BaySlot[],
                           isActive: true,
                         }}
                         onSubmit={handleSaveBay}
@@ -742,7 +647,7 @@ export default function FuelBayPage() {
                 <th className="pb-3 pr-4 font-medium">Driver</th>
                 <th className="pb-3 pr-4 font-medium">Status</th>
                 <th className="pb-3 pr-4 font-medium">Gate In</th>
-                <th className="pb-3 pr-4 font-medium">Bay Slot</th>
+                <th className="pb-3 pr-4 font-medium">Bay</th>
                 <th className="pb-3 pr-4 font-medium">Loading</th>
               </tr>
             </thead>
