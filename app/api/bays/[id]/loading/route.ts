@@ -1,91 +1,127 @@
 // app/api/bays/[id]/loading/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { LoadStatus } from "@prisma/client";
 
+// Next 16: params bisa berupa Promise, jadi perlu helper
 type ParamsPromise =
-  | { params: Promise<{ id?: string }> }
-  | { params: { id?: string } };
+  | { params: Promise<{ id: string }> }
+  | { params: { id: string } };
 
-const resolveParams = async (maybePromise: ParamsPromise) => {
-  const raw = "params" in maybePromise ? (maybePromise as any).params : undefined;
-  return raw && typeof raw.then === "function" ? await raw : raw;
-};
-
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+async function resolveParams(ctx: ParamsPromise) {
+  const raw = "params" in ctx ? (ctx as any).params : undefined;
+  if (!raw) return undefined;
+  // Kalau params itu Promise (dev mode / turbopack)
+  if (typeof raw.then === "function") {
+    return await raw;
+  }
+  return raw;
 }
 
-function endOfToday() {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-export async function POST(req: Request, ctx: ParamsPromise) {
-  const params = await resolveParams(ctx);
-  const bayId = params?.id;
+async function handleLoadingEvent(req: NextRequest, bayId: string) {
   if (!bayId) {
     return NextResponse.json(
-      { message: "Missing bay id in route" },
+      { message: "Missing bay id in route params" },
       { status: 400 },
     );
   }
 
-  const body = await req.json().catch(() => null);
-  const event = body?.event as "START" | "STOP" | undefined;
-  const litersRaw = body?.liters;
-  const liters = litersRaw !== undefined ? Number(litersRaw) : null;
+  const url = req.nextUrl;
+  const body = (await req.json().catch(() => ({}))) as any;
 
-  if (!event || (event !== "START" && event !== "STOP")) {
+  const rawEvent = (
+    body.event ??
+    url.searchParams.get("event") ??
+    ""
+  )
+    .toString()
+    .toUpperCase();
+
+  if (!["START", "STOP"].includes(rawEvent)) {
     return NextResponse.json(
-      { message: "Invalid or missing event (START | STOP)" },
+      { message: "Invalid event, use START or STOP" },
       { status: 400 },
     );
   }
 
-  // Ensure bay exists
-  const bay = await prisma.bay.findUnique({ where: { id: bayId } });
-  if (!bay) {
-    return NextResponse.json({ message: "Bay not found" }, { status: 404 });
-  }
+  // hard-coded default slot 1A kalau gak dikirim
+  const slot: string =
+    body.slot || url.searchParams.get("slot") || "1A";
 
-  const todayStart = startOfToday();
-  const todayEnd = endOfToday();
+  const litersRaw = body.liters ?? url.searchParams.get("liters");
+  const liters =
+    litersRaw !== undefined &&
+    litersRaw !== null &&
+    litersRaw !== ""
+      ? Number(litersRaw)
+      : null;
 
-  // For START: we expect something like GATE_IN / QUEUED / SCHEDULED at this bay (or unassigned).
-  // For STOP: we expect LOADING.
-  const statusFilter =
-    event === "START"
-      ? { in: ["SCHEDULED", "GATE_IN", "QUEUED", "LOADING"] as any }
-      : { in: ["LOADING"] as any };
-
-  const session = await prisma.loadSession.findFirst({
-    where: {
-      bayId,
-      createdAt: {
-        gte: todayStart,
-        lte: todayEnd,
-      },
-      status: statusFilter,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    include: {
-      order: true,
-      bay: true,
-    },
+  // 1) Ambil bay
+  const bay = await prisma.bay.findUnique({
+    where: { id: bayId },
   });
 
-  if (!session) {
+  if (!bay) {
+    return NextResponse.json(
+      { message: "Bay not found" },
+      { status: 404 },
+    );
+  }
+
+  // 2) Optional: validasi bahwa slot itu ada di JSONB `bay.slots`
+  //    Contoh data:
+  //    [{"slot":"1A","product":"Premium","capacityLiters":1000}, ...]
+  let slotConfig: any | null = null;
+  if (bay.slots) {
+    try {
+      const slotsArray = Array.isArray(bay.slots)
+        ? (bay.slots as any[])
+        : (JSON.parse(bay.slots as any) as any[]);
+
+      slotConfig = slotsArray.find(
+        (s: any) =>
+          (s.slot ?? s.Slot ?? "").toString() === slot.toString(),
+      );
+    } catch (e) {
+      // kalau JSON parse gagal, kita biarkan saja & tidak blokir
+      console.warn("[loading] Failed to parse bay.slots JSON", e);
+    }
+  }
+
+  if (!slotConfig) {
+    // kalau kamu mau strict, aktifkan ini:
+    // return NextResponse.json(
+    //   {
+    //     message: `Slot ${slot} is not configured for this bay`,
+    //   },
+    //   { status: 400 },
+    // );
+    console.warn(
+      `[loading] Slot ${slot} tidak ditemukan di bay.slots, lanjut saja...`,
+    );
+  }
+
+  // 3) Cari loadSession aktif untuk bay ini
+  const loadSession = await prisma.loadSession.findFirst({
+    where: {
+      bayId: bay.id,
+      status: {
+        in: [
+          LoadStatus.SCHEDULED,
+          LoadStatus.GATE_IN,
+          LoadStatus.QUEUED,
+          LoadStatus.LOADING,
+        ],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!loadSession) {
     return NextResponse.json(
       {
         message:
-          event === "START"
-            ? "No active session at this bay to start loading"
-            : "No LOADING session at this bay to stop",
+          "No active loadSession for this bay. Make sure gate-in / assignment is done.",
       },
       { status: 404 },
     );
@@ -93,45 +129,74 @@ export async function POST(req: Request, ctx: ParamsPromise) {
 
   const now = new Date();
 
-  if (event === "START") {
+  // ==========================
+  // START LOADING
+  // ==========================
+  if (rawEvent === "START") {
     const updated = await prisma.loadSession.update({
-      where: { id: session.id },
+      where: { id: loadSession.id },
       data: {
-        status: "LOADING",
-        loadingStartAt: session.loadingStartAt ?? now,
-        bayId: bayId,
+        status: LoadStatus.LOADING,
+        // jangan overwrite kalau sudah ada
+        loadingStartAt: loadSession.loadingStartAt ?? now,
+        bayId: bay.id,
       },
-      include: { order: true, bay: true },
+      include: {
+        order: true,
+        bay: true,
+      },
     });
 
-    return NextResponse.json(
-      {
-        message: "Loading started",
-        loadSession: updated,
-      },
-      { status: 200 },
-    );
+    return NextResponse.json({
+      ok: true,
+      event: "START",
+      bayId: bay.id,
+      slot,
+      sessionId: updated.id,
+      status: updated.status,
+      loadingStartAt: updated.loadingStartAt,
+    });
   }
 
-  // STOP
+  // ==========================
+  // STOP LOADING
+  // ==========================
   const updated = await prisma.loadSession.update({
-    where: { id: session.id },
+    where: { id: loadSession.id },
     data: {
-      status: "FINISHED", // or "GATE_OUT" depending on your flow
+      status: LoadStatus.GATE_OUT, // atau LoadStatus.FINISHED kalau mau
       loadingEndAt: now,
-      actualLiters:
-        liters !== null && Number.isFinite(liters)
-          ? liters
-          : session.actualLiters, // keep old if null
+      gateOutAt: loadSession.gateOutAt ?? now,
+      actualLiters: liters ?? loadSession.actualLiters,
+      bayId: bay.id,
     },
-    include: { order: true, bay: true },
+    include: {
+      order: true,
+      bay: true,
+    },
   });
 
-  return NextResponse.json(
-    {
-      message: "Loading stopped",
-      loadSession: updated,
-    },
-    { status: 200 },
-  );
+  return NextResponse.json({
+    ok: true,
+    event: "STOP",
+    bayId: bay.id,
+    slot,
+    sessionId: updated.id,
+    status: updated.status,
+    loadingEndAt: updated.loadingEndAt,
+    gateOutAt: updated.gateOutAt,
+    actualLiters: updated.actualLiters,
+  });
+}
+
+// POST untuk ESP32 / program
+export async function POST(req: NextRequest, ctx: ParamsPromise) {
+  const params = await resolveParams(ctx);
+  return handleLoadingEvent(req, params?.id ?? "");
+}
+
+// GET untuk manual test via browser
+export async function GET(req: NextRequest, ctx: ParamsPromise) {
+  const params = await resolveParams(ctx);
+  return handleLoadingEvent(req, params?.id ?? "");
 }

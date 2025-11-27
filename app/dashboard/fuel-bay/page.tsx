@@ -8,7 +8,12 @@ import { StatusManager } from "@/lib/base-component";
 import BayForm, { BayPayload, BaySlot } from "@/components/forms/bay-form";
 
 const formatTime = (value?: string) =>
-  value ? new Date(value).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-";
+  value
+    ? new Date(value).toLocaleTimeString("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "-";
 
 const parseVolume = (value?: string) => {
   if (!value) return 0;
@@ -16,7 +21,8 @@ const parseVolume = (value?: string) => {
   return Number(numeric) || 0;
 };
 
-const formatVolumeLabel = (value: number) => `${value.toLocaleString("id-ID")} L`;
+const formatVolumeLabel = (value: number) =>
+  `${value.toLocaleString("id-ID")} L`;
 
 const getBayName = (slot?: string) => {
   if (!slot) return undefined;
@@ -41,10 +47,16 @@ type BayConfiguration = {
 
 export default function FuelBayPage() {
   const { sessions } = useStatusContext();
-  const [bayConfigurations, setBayConfigurations] = useState<BayConfiguration[]>([]);
+
+  const [bayConfigurations, setBayConfigurations] = useState<BayConfiguration[]>(
+    [],
+  );
   const [loadingBays, setLoadingBays] = useState(true);
   const [terminalCapacity, setTerminalCapacity] = useState<number | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
+
+  // NEW: Bay 1A Occupancy
+  const [bay1AOccupied, setBay1AOccupied] = useState<boolean>(false);
 
   const loadBays = async () => {
     setLoadingBays(true);
@@ -79,7 +91,9 @@ export default function FuelBayPage() {
   };
 
   useEffect(() => {
+    // Initial loads
     loadBays();
+
     (async () => {
       try {
         const termRes = await fetch("/api/terminal");
@@ -93,6 +107,7 @@ export default function FuelBayPage() {
         setTerminalCapacity(null);
       }
     })();
+
     (async () => {
       try {
         const res = await fetch("/api/orders");
@@ -102,6 +117,28 @@ export default function FuelBayPage() {
         setOrders([]);
       }
     })();
+  }, []);
+
+  // === NEW: Poll bay-occupancy for Bay 1A ===
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/bay-occupancy?slot=1A");
+        if (!res.ok) return;
+        const data = await res.json();
+        setBay1AOccupied(Boolean(data.occupied));
+      } catch {
+        setBay1AOccupied(false);
+      }
+    };
+
+    // First call + interval
+    poll();
+    timer = setInterval(poll, 1000); // 1s polling
+
+    return () => clearInterval(timer);
   }, []);
 
   const defaultBayConfigs: BayConfiguration[] = [
@@ -192,7 +229,6 @@ export default function FuelBayPage() {
       )
       .reduce((sum, o) => sum + Number(o.plannedLiters ?? 0), 0);
 
-    // consumed volume from finished/gate_out sessions (prefer actualLiters)
     const finishedSessions = orders.flatMap((o: any) =>
       Array.isArray(o.loadSessions)
         ? o.loadSessions.map((ls: any) => ({ ...ls, order: o }))
@@ -253,7 +289,7 @@ export default function FuelBayPage() {
     await loadBays();
   };
 
-  // ============== EMPTY STATE (NO HIGHLIGHTED SESSION) ==============
+  // ========== NO ACTIVE SESSION VIEW ==========
   if (!highlighted) {
     const bays =
       bayConfigurations.length > 0 ? bayConfigurations : defaultBayConfigs;
@@ -277,25 +313,22 @@ export default function FuelBayPage() {
           description="Kapasitas terminal dan alokasi volume"
           icon={GaugeCircle}
         >
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <div className="grid gap-3 sm:grid-cols-3 text-sm">
-              <Metric
-                label="Kapasitas Terminal"
-                value={formatVolumeLabel(capacityTotals.totalCapacity)}
-              />
-              <Metric
-                label="Kapasitas Saat Ini"
-                value={formatVolumeLabel(capacityTotals.currentCapacity)}
-              />
-              <Metric
-                label="Terpakai Hari Ini"
-                value={formatVolumeLabel(capacityTotals.totalConsumed)}
-              />
-            </div>
-            <CylinderBar
-              label="Level Tangki"
-              current={capacityTotals.currentCapacity}
-              total={capacityTotals.totalCapacity}
+          <div className="grid gap-3 sm:grid-cols-4 text-sm">
+            <Metric
+              label="Kapasitas Terminal"
+              value={formatVolumeLabel(capacityTotals.totalCapacity)}
+            />
+            <Metric
+              label="Kapasitas Saat Ini"
+              value={formatVolumeLabel(capacityTotals.currentCapacity)}
+            />
+            <Metric
+              label="Terpakai Hari Ini"
+              value={formatVolumeLabel(capacityTotals.totalConsumed)}
+            />
+            <Metric
+              label="Bay 1A"
+              value={bay1AOccupied ? "Occupied" : "Idle"}
             />
           </div>
         </InfoCard>
@@ -370,6 +403,19 @@ export default function FuelBayPage() {
                       </div>
                     ))}
                   </div>
+                  {/* Tiny indicator for Bay 1A if you want */}
+                  {config.bay === "Bay 1" && (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Slot 1A status:{" "}
+                      <span
+                        className={
+                          bay1AOccupied ? "text-emerald-500" : "text-muted-foreground"
+                        }
+                      >
+                        {bay1AOccupied ? "TRUCK PRESENT" : "Idle"}
+                      </span>
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -379,7 +425,7 @@ export default function FuelBayPage() {
     );
   }
 
-  // ============== MAIN STATE (ADA HIGHLIGHTED SESSION) ==============
+  // ========== WITH ACTIVE SESSIONS VIEW ==========
   return (
     <div className="space-y-8">
       <div>
@@ -401,25 +447,22 @@ export default function FuelBayPage() {
         description="Kapasitas terminal dan alokasi volume"
         icon={GaugeCircle}
       >
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <div className="grid gap-3 sm:grid-cols-3 text-sm">
-            <Metric
-              label="Kapasitas Terminal"
-              value={formatVolumeLabel(capacityTotals.totalCapacity)}
-            />
-            <Metric
-              label="Kapasitas Saat Ini"
-              value={formatVolumeLabel(capacityTotals.currentCapacity)}
-            />
-            <Metric
-              label="Terpakai Hari Ini"
-              value={formatVolumeLabel(capacityTotals.totalConsumed)}
-            />
-          </div>
-          <CylinderBar
-            label="Level Tangki"
-            current={capacityTotals.currentCapacity}
-            total={capacityTotals.totalCapacity}
+        <div className="grid gap-3 sm:grid-cols-4 text-sm">
+          <Metric
+            label="Kapasitas Terminal"
+            value={formatVolumeLabel(capacityTotals.totalCapacity)}
+          />
+          <Metric
+            label="Kapasitas Saat Ini"
+            value={formatVolumeLabel(capacityTotals.currentCapacity)}
+          />
+          <Metric
+            label="Terpakai Hari Ini"
+            value={formatVolumeLabel(capacityTotals.totalConsumed)}
+          />
+          <Metric
+            label="Bay 1A"
+            value={bay1AOccupied ? "Occupied" : "Idle"}
           />
         </div>
       </InfoCard>
@@ -514,6 +557,20 @@ export default function FuelBayPage() {
                       <p className="mt-1 text-[11px] text-muted-foreground">
                         Temperatur: -- °C
                       </p>
+                      {config.bay === "Bay 1" && (
+                        <p className="mt-1 text-[11px]">
+                          Slot 1A:{" "}
+                          <span
+                            className={
+                              bay1AOccupied
+                                ? "text-emerald-500"
+                                : "text-muted-foreground"
+                            }
+                          >
+                            {bay1AOccupied ? "TRUCK PRESENT" : "Idle"}
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
                       <p className="font-semibold text-foreground">
@@ -583,6 +640,20 @@ export default function FuelBayPage() {
                   <p className="mt-1 text-xs text-muted-foreground">
                     Temperatur: -- °C
                   </p>
+                  {config.bay === "Bay 1" && (
+                    <p className="mt-1 text-[11px]">
+                      Slot 1A:{" "}
+                      <span
+                        className={
+                          bay1AOccupied
+                            ? "text-emerald-500"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {bay1AOccupied ? "TRUCK PRESENT" : "Idle"}
+                      </span>
+                    </p>
+                  )}
                   <div className="mt-3 rounded-2xl border border-dashed border-border/60 p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
                       Terjadwal
@@ -709,9 +780,9 @@ export default function FuelBayPage() {
                   </td>
                   <td className="py-3 pr-4 text-muted-foreground">
                     {session.fuel.startedAt
-                      ? `${formatTime(session.fuel.startedAt)} - ${formatTime(
-                          session.fuel.finishedAt,
-                        )}`
+                      ? `${formatTime(
+                          session.fuel.startedAt,
+                        )} - ${formatTime(session.fuel.finishedAt)}`
                       : "-"}
                   </td>
                 </tr>
@@ -789,47 +860,6 @@ function Metric({ label, value }: { label: string; value: number | string }) {
         {label}
       </p>
       <p className="mt-2 text-2xl font-semibold text-foreground">{display}</p>
-    </div>
-  );
-}
-
-// Bar silinder lonjong buat level tangki
-function CylinderBar({
-  label,
-  current,
-  total,
-}: {
-  label: string;
-  current: number;
-  total: number;
-}) {
-  // boleh dibikin "step" biar nggak terlalu sensitif (misal 5%)
-  const pctRaw = total > 0 ? (current / total) * 100 : 0;
-  const pct = Math.max(0, Math.min(100, Math.round(pctRaw / 5) * 5)); // step 5%
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{label}</span>
-        <span>{pct}%</span>
-      </div>
-      <div className="relative h-10 w-full overflow-hidden rounded-full bg-border/60">
-        {/* isi BBM */}
-        <div
-          className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-500 ease-out"
-          style={{ width: `${pct}%` }}
-        />
-        {/* highlight pinggir biar kaya silinder */}
-        <div className="pointer-events-none absolute inset-0 rounded-full border border-white/20/">
-          <div className="h-full w-full bg-gradient-to-b from-white/15 via-transparent to-black/20 mix-blend-overlay" />
-        </div>
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        {formatVolumeLabel(current)} dari {formatVolumeLabel(total)}
-      </p>
-      <p className="text-[11px] text-muted-foreground">
-        Temperatur BBM: <span className="font-medium">-- °C</span>
-      </p>
     </div>
   );
 }
