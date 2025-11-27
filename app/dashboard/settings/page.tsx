@@ -3,10 +3,20 @@
 import { useEffect, useState } from "react";
 import { InfoCard, Card } from "@/components/ui/card";
 import { Settings, Bell, Shield, Database, Palette, Fuel, Clock, Droplets } from "lucide-react";
-import BayForm, { BayPayload, BaySlot } from "@/components/forms/bay-form";
+import BayForm, { BayPayload } from "@/components/forms/bay-form";
 
 export default function SettingsPage() {
-  const [bays, setBays] = useState<Array<{ id: string; name: string; capacityLiters?: number; slots?: BaySlot[]; family?: string; description?: string; isActive?: boolean }>>([]);
+  const [bays, setBays] = useState<
+    Array<{
+      id: string;
+      name: string;
+      capacityLiters?: number;
+      family?: string;
+      description?: string;
+      product?: string;
+      isActive?: boolean;
+    }>
+  >([]);
   const [terminalCapacity, setTerminalCapacity] = useState<number | null>(null);
   const [products, setProducts] = useState<Array<{ id: string; name: string }>>([]);
   const [shifts, setShifts] = useState<Array<{ id: string; name: string; startTime: string; endTime: string; isActive: boolean }>>([]);
@@ -24,15 +34,9 @@ export default function SettingsPage() {
             id: bay.id,
             name: bay.name,
             capacityLiters: bay.capacityLiters,
-            slots: Array.isArray(bay.slots)
-              ? bay.slots.map((s: any) => ({
-                  slot: s.slot,
-                  product: s.product,
-                  capacityLiters: s.capacityLiters ?? s.capacity ?? null,
-                }))
-              : [],
             family: bay.family,
             description: bay.description,
+            product: bay.product,
             isActive: bay.isActive,
           })),
         );
@@ -63,6 +67,12 @@ export default function SettingsPage() {
         body: JSON.stringify(payload),
       });
     }
+    await loadBays();
+  };
+
+  const handleDeleteBay = async (id?: string) => {
+    if (!id) return;
+    await fetch(`/api/bays/${id}`, { method: "DELETE" });
     await loadBays();
   };
 
@@ -188,7 +198,7 @@ export default function SettingsPage() {
 
       <InfoCard
         title="Fuel Bay Configuration"
-        description="Tambahkan bay, kapasitas, dan slot produk"
+        description="Tambahkan bay, kapasitas total, dan produk utama"
         icon={Fuel}
         actions={<BayForm onSubmit={handleSaveBay} />}
       >
@@ -199,21 +209,29 @@ export default function SettingsPage() {
               <div>
                 <p className="font-semibold text-foreground">{bay.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  Kapasitas {bay.capacityLiters ? `${bay.capacityLiters / 1000} KL` : "-"}
+                  Kapasitas {bay.capacityLiters ? `${bay.capacityLiters / 1000} KL` : "-"} • Produk {bay.product || "-"}
                 </p>
               </div>
-              <BayForm
-                bay={{ id: bay.id, name: bay.name, capacityLiters: bay.capacityLiters }}
-                onSubmit={handleSaveBay}
-                renderTrigger={(open) => (
-                  <button
-                    onClick={open}
-                    className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground transition hover:border-primary/60 hover:text-primary"
-                  >
-                    Edit
-                  </button>
-                )}
-              />
+              <div className="flex items-center gap-2">
+                <BayForm
+                  bay={{ id: bay.id, name: bay.name, capacityLiters: bay.capacityLiters, product: bay.product }}
+                  onSubmit={handleSaveBay}
+                  renderTrigger={(open) => (
+                    <button
+                      onClick={open}
+                      className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground transition hover:border-primary/60 hover:text-primary"
+                    >
+                      Edit
+                    </button>
+                  )}
+                />
+                <button
+                  onClick={() => handleDeleteBay(bay.id)}
+                  className="rounded-lg border border-destructive/40 px-3 py-1 text-xs text-destructive transition hover:bg-destructive/10"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -255,7 +273,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-semibold text-foreground">Loading bay configuration</p>
-                <p className="text-xs text-muted-foreground">Kelola bay dan slot produk</p>
+                <p className="text-xs text-muted-foreground">Kelola bay, kapasitas, dan produk utama</p>
               </div>
               <BayForm onSubmit={handleSaveBay} />
             </div>
@@ -266,29 +284,37 @@ export default function SettingsPage() {
                     <div>
                       <p className="font-semibold text-foreground">{bay.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        Kapasitas {bay.capacityLiters ? `${bay.capacityLiters / 1000} KL` : "-"}
+                        Kapasitas {bay.capacityLiters ? `${bay.capacityLiters / 1000} KL` : "-"} • Produk {bay.product || "-"}
                       </p>
                     </div>
-                    <BayForm
-                      bay={{
-                        id: bay.id,
-                        name: bay.name,
-                        capacityLiters: bay.capacityLiters,
-                        slots: bay.slots,
-                        family: bay.family,
-                        description: bay.description,
-                        isActive: bay.isActive,
-                      }}
-                      onSubmit={handleSaveBay}
-                      renderTrigger={(open) => (
-                        <button
-                          onClick={open}
-                          className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground transition hover:border-primary/60 hover:text-primary"
-                        >
-                          Configure
-                        </button>
-                      )}
-                    />
+                    <div className="flex items-center gap-2">
+                      <BayForm
+                        bay={{
+                          id: bay.id,
+                          name: bay.name,
+                          capacityLiters: bay.capacityLiters,
+                          family: bay.family,
+                          description: bay.description,
+                          product: bay.product,
+                          isActive: bay.isActive,
+                        }}
+                        onSubmit={handleSaveBay}
+                        renderTrigger={(open) => (
+                          <button
+                            onClick={open}
+                            className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground transition hover:border-primary/60 hover:text-primary"
+                          >
+                            Configure
+                          </button>
+                        )}
+                      />
+                      <button
+                        onClick={() => handleDeleteBay(bay.id)}
+                        className="rounded-lg border border-destructive/40 px-3 py-1 text-xs text-destructive transition hover:bg-destructive/10"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

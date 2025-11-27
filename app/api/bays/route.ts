@@ -16,10 +16,10 @@ export async function POST(req: Request) {
     const bay = await prisma.bay.create({
       data: {
         name: payload.name,
+        product: payload.product || null,
         family: payload.family || null,
         description: payload.description || null,
         capacityLiters: Number.isFinite(capacityLiters) ? capacityLiters : null,
-        slots: payload.slots || null,
         isActive: payload.isActive ?? true,
       },
     });

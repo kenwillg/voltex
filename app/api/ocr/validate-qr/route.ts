@@ -7,16 +7,36 @@ function startOfToday() {
   d.setHours(0, 0, 0, 0);
   return d;
 }
-
 function endOfToday() {
   const d = new Date();
   d.setHours(23, 59, 59, 999);
   return d;
 }
 
+// -------------------
+// Configure ESP32 IP
+// -------------------
+const ESP32_GATE_IP = "192.168.112.78";
+
+// helper to open a gate
+async function openGate(direction: "entry" | "exit") {
+  try {
+    const url = `http://${ESP32_GATE_IP}/gate/open?direction=${direction}`;
+    console.log("[ESP32] Send:", url);
+    const r = await fetch(url);
+    console.log("[ESP32] Response status:", r.status);
+  } catch (err) {
+    console.error("[ESP32] Failed to open gate:", err);
+  }
+}
+
 export async function GET(req: NextRequest) {
   const qr = req.nextUrl.searchParams.get("qr") ?? "";
-  console.log("validate-qr:", qr);
+  const direction =
+    (req.nextUrl.searchParams.get("direction") as "entry" | "exit") ??
+    "entry"; // default entry
+
+  console.log("validate-qr:", qr, "direction:", direction);
 
   try {
     // Expected shape: VOLTEX|DRIVER|<driverId>|<driverCode>
@@ -40,8 +60,6 @@ export async function GET(req: NextRequest) {
     const driver = await prisma.driver.findUnique({
       where: { id: driverId },
     });
-
-    console.log("[qr] driver from DB =", driver);
 
     if (!driver) {
       return NextResponse.json(
@@ -70,37 +88,40 @@ export async function GET(req: NextRequest) {
     const todayStart = startOfToday();
     const todayEnd = endOfToday();
 
-    // 2) Try to find *today's* order first
+    // 2) Get today's order and active loadSession
     const todayOrder = await prisma.order.findFirst({
       where: {
         driverId: driver.id,
-        scheduledAt: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
+        scheduledAt: { gte: todayStart, lte: todayEnd },
       },
       include: {
         vehicle: true,
-        loadSessions: true,
+        loadSessions: {
+          where: { status: { in: ["SCHEDULED", "GATE_IN"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
       orderBy: { scheduledAt: "asc" },
     });
 
-    // 3) If none for today, fall back to latest order (for debugging / safety)
+    // 3) fallback
     const fallbackOrder = !todayOrder
       ? await prisma.order.findFirst({
           where: { driverId: driver.id },
           include: {
             vehicle: true,
-            loadSessions: true,
+            loadSessions: {
+              where: { status: { in: ["SCHEDULED", "GATE_IN"] } },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
           },
           orderBy: { scheduledAt: "desc" },
         })
       : null;
 
     const order = todayOrder ?? fallbackOrder;
-
-    console.log("[qr] todayOrder =", todayOrder?.id, "fallbackOrder =", fallbackOrder?.id);
 
     if (!order) {
       return NextResponse.json(
@@ -118,7 +139,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // If we fell back to a non-today order, be explicit in reason
     if (!todayOrder) {
       return NextResponse.json(
         {
@@ -129,42 +149,40 @@ export async function GET(req: NextRequest) {
             driverCode: driver.driverCode,
           },
           loadSession: null,
-          reason: `Driver has an order (SP ${order.spNumber}) but not scheduled *today* on the backend. Check timezones / driverId mapping.`,
+          reason: `Driver has an order (SP ${order.spNumber}) but not scheduled *today*.`,
         },
         { status: 200 },
       );
     }
 
+    // 4) Ensure/load a LoadSession and mark GATE_IN
     const now = new Date();
-
-    // 4) Ensure/load a LoadSession and mark it as GATE_IN
-    let session = order.loadSessions[0];
+    let session = order.loadSessions[0] ?? null;
 
     if (!session) {
       session = await prisma.loadSession.create({
-        data: {
-          orderId: order.id,
-          status: "GATE_IN",
-          gateInAt: now,
-        },
+        data: { orderId: order.id, status: "GATE_IN", gateInAt: now },
       });
     } else if (!session.gateInAt) {
       session = await prisma.loadSession.update({
         where: { id: session.id },
-        data: {
-          status: "GATE_IN",
-          gateInAt: now,
-        },
+        data: { status: "GATE_IN", gateInAt: now },
       });
     } else if (session.status === "SCHEDULED") {
       session = await prisma.loadSession.update({
         where: { id: session.id },
-        data: {
-          status: "GATE_IN",
-        },
+        data: { status: "GATE_IN" },
       });
     }
 
+    // --------------------------
+    // 🚧 OPEN THE ESP32 GATE 🚧
+    // --------------------------
+    openGate(direction);
+
+    // --------------------------
+    // RETURN TO UI
+    // --------------------------
     return NextResponse.json(
       {
         valid: true,
