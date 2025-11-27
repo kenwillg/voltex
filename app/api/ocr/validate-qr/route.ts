@@ -16,7 +16,7 @@ function endOfToday() {
 // -------------------
 // Configure ESP32 IP
 // -------------------
-const ESP32_GATE_IP = "192.168.112.178";
+const ESP32_GATE_IP = "192.168.112.78";
 
 // helper to open a gate
 async function openGate(direction: "entry" | "exit") {
