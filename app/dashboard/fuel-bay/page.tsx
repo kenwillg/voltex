@@ -10,13 +10,13 @@ import BayForm, { BayPayload, BaySlot } from "@/components/forms/bay-form";
 const formatTime = (value?: string) =>
   value ? new Date(value).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-";
 
-  const parseVolume = (value?: string) => {
-    if (!value) return 0;
-    const numeric = value.replace(/[^\d]/g, "");
-    return Number(numeric) || 0;
-  };
+const parseVolume = (value?: string) => {
+  if (!value) return 0;
+  const numeric = value.replace(/[^\d]/g, "");
+  return Number(numeric) || 0;
+};
 
-  const formatVolumeLabel = (value: number) => `${value.toLocaleString("id-ID")} L`;
+const formatVolumeLabel = (value: number) => `${value.toLocaleString("id-ID")} L`;
 
 const getBayName = (slot?: string) => {
   if (!slot) return undefined;
@@ -84,7 +84,11 @@ export default function FuelBayPage() {
       try {
         const termRes = await fetch("/api/terminal");
         const termData = await termRes.json();
-        setTerminalCapacity(typeof termData?.capacityLiters === "number" ? termData.capacityLiters : null);
+        setTerminalCapacity(
+          typeof termData?.capacityLiters === "number"
+            ? termData.capacityLiters
+            : null,
+        );
       } catch {
         setTerminalCapacity(null);
       }
@@ -145,7 +149,9 @@ export default function FuelBayPage() {
   const highlighted = activeSessions[0] ?? sessions[0];
 
   const bayUsage = useMemo(() => {
-    const base = bayConfigurations.reduce<Record<string, { planned: number; active: number }>>((acc, config) => {
+    const base = bayConfigurations.reduce<
+      Record<string, { planned: number; active: number }>
+    >((acc, config) => {
       acc[config.bay] = { planned: 0, active: 0 };
       return acc;
     }, {});
@@ -165,21 +171,58 @@ export default function FuelBayPage() {
     return base;
   }, [sessions, bayConfigurations]);
 
-  const capacityTotals = useMemo(
-    () => {
-      const baysCapacity = bayConfigurations.reduce((sum, config) => sum + config.capacity, 0);
-      const totalCapacity = terminalCapacity ?? baysCapacity;
-      const orderScheduled = orders
-        .filter((o) => ["SCHEDULED", "GATE_IN"].includes(o.status ?? o.loadSessions?.[0]?.status ?? ""))
-        .reduce((sum, o) => sum + Number(o.plannedLiters ?? 0), 0);
-      const orderLoading = orders
-        .filter((o) => (o.status ?? o.loadSessions?.[0]?.status ?? "") === "LOADING")
-        .reduce((sum, o) => sum + Number(o.plannedLiters ?? 0), 0);
+  const capacityTotals = useMemo(() => {
+    const baysCapacity = bayConfigurations.reduce(
+      (sum, config) => sum + config.capacity,
+      0,
+    );
+    const totalCapacity = terminalCapacity ?? baysCapacity;
 
-      return { totalCapacity, totalPlannedVolume: orderScheduled, totalLoadingVolume: orderLoading };
-    },
-    [bayConfigurations, sessions, terminalCapacity, orders],
-  );
+    const orderScheduled = orders
+      .filter((o) =>
+        ["SCHEDULED", "GATE_IN"].includes(
+          o.status ?? o.loadSessions?.[0]?.status ?? "",
+        ),
+      )
+      .reduce((sum, o) => sum + Number(o.plannedLiters ?? 0), 0);
+
+    const orderLoading = orders
+      .filter(
+        (o) => (o.status ?? o.loadSessions?.[0]?.status ?? "") === "LOADING",
+      )
+      .reduce((sum, o) => sum + Number(o.plannedLiters ?? 0), 0);
+
+    // consumed volume from finished/gate_out sessions (prefer actualLiters)
+    const finishedSessions = orders.flatMap((o: any) =>
+      Array.isArray(o.loadSessions)
+        ? o.loadSessions.map((ls: any) => ({ ...ls, order: o }))
+        : [],
+    );
+
+    const totalConsumed = finishedSessions
+      .filter(
+        (ls: any) => ls.status === "FINISHED" || ls.status === "GATE_OUT",
+      )
+      .reduce((sum: number, ls: any) => {
+        if (ls.actualLiters != null) {
+          return sum + Number(ls.actualLiters);
+        }
+        if (ls.order?.plannedLiters != null) {
+          return sum + Number(ls.order.plannedLiters);
+        }
+        return sum;
+      }, 0);
+
+    const currentCapacity = Math.max(totalCapacity - totalConsumed, 0);
+
+    return {
+      totalCapacity,
+      totalPlannedVolume: orderScheduled,
+      totalLoadingVolume: orderLoading,
+      totalConsumed,
+      currentCapacity,
+    };
+  }, [bayConfigurations, terminalCapacity, orders]);
 
   const handleSaveBay = async (payload: BayPayload, id?: string) => {
     const slots = payload.slots?.map((slot) => ({
@@ -210,15 +253,22 @@ export default function FuelBayPage() {
     await loadBays();
   };
 
+  // ============== EMPTY STATE (NO HIGHLIGHTED SESSION) ==============
   if (!highlighted) {
-    const bays = bayConfigurations.length ? bayConfigurations : defaultBayConfigs;
+    const bays =
+      bayConfigurations.length > 0 ? bayConfigurations : defaultBayConfigs;
     return (
       <div className="space-y-6">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.32em] text-primary">Distribution Monitoring</p>
-          <h1 className="mt-2 text-3xl font-semibold text-foreground">Fuel Bay Monitoring</h1>
+          <p className="text-xs font-medium uppercase tracking-[0.32em] text-primary">
+            Distribution Monitoring
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold text-foreground">
+            Fuel Bay Monitoring
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Belum ada sesi loading. Tambahkan surat perintah atau konfigurasi bay untuk mulai memantau aktivitas.
+            Belum ada sesi loading. Tambahkan surat perintah atau konfigurasi
+            bay untuk mulai memantau aktivitas.
           </p>
         </div>
 
@@ -227,10 +277,26 @@ export default function FuelBayPage() {
           description="Kapasitas terminal dan alokasi volume"
           icon={GaugeCircle}
         >
-          <div className="grid gap-3 sm:grid-cols-3 text-sm">
-            <Metric label="Kapasitas Terminal" value={formatVolumeLabel(capacityTotals.totalCapacity)} />
-            <Metric label="Volume Terjadwal" value={formatVolumeLabel(capacityTotals.totalPlannedVolume)} />
-            <Metric label="Sedang Mengisi" value={formatVolumeLabel(capacityTotals.totalLoadingVolume)} />
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="grid gap-3 sm:grid-cols-3 text-sm">
+              <Metric
+                label="Kapasitas Terminal"
+                value={formatVolumeLabel(capacityTotals.totalCapacity)}
+              />
+              <Metric
+                label="Kapasitas Saat Ini"
+                value={formatVolumeLabel(capacityTotals.currentCapacity)}
+              />
+              <Metric
+                label="Terpakai Hari Ini"
+                value={formatVolumeLabel(capacityTotals.totalConsumed)}
+              />
+            </div>
+            <CylinderBar
+              label="Level Tangki"
+              current={capacityTotals.currentCapacity}
+              total={capacityTotals.totalCapacity}
+            />
           </div>
         </InfoCard>
 
@@ -254,22 +320,36 @@ export default function FuelBayPage() {
         >
           {bays.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Belum ada sesi aktif. Buat order di halaman Orders untuk melihat daftar loading di sini.
+              Belum ada sesi aktif. Buat order di halaman Orders untuk melihat
+              daftar loading di sini.
             </p>
           ) : (
             <div className="grid gap-4 md:grid-cols-3">
               {bays.map((config) => (
-                <div key={config.bay} className="rounded-2xl border border-border/60 p-4">
+                <div
+                  key={config.bay}
+                  className="rounded-2xl border border-border/60 p-4"
+                >
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">{config.bay}</p>
-                      <p className="text-lg font-semibold text-foreground">{config.family}</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                        {config.bay}
+                      </p>
+                      <p className="text-lg font-semibold text-foreground">
+                        {config.family}
+                      </p>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {config.slots.length} slot • {formatVolumeLabel(config.capacity)}
+                      {config.slots.length} slot •{" "}
+                      {formatVolumeLabel(config.capacity)}
                     </span>
                   </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{config.description}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {config.description}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Temperatur: -- °C
+                  </p>
                   <div className="mt-3 space-y-2 text-sm">
                     {config.slots.map((slot) => (
                       <div
@@ -277,10 +357,16 @@ export default function FuelBayPage() {
                         className="flex items-center justify-between rounded-xl border border-border/60 px-3 py-2"
                       >
                         <div>
-                          <span className="block font-semibold text-foreground">Bay {slot.slot}</span>
-                          <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">{slot.product}</span>
+                          <span className="block font-semibold text-foreground">
+                            Bay {slot.slot}
+                          </span>
+                          <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
+                            {slot.product}
+                          </span>
                         </div>
-                        <span className="text-xs text-muted-foreground">{formatVolumeLabel(slot.capacity)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatVolumeLabel(slot.capacity)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -293,14 +379,20 @@ export default function FuelBayPage() {
     );
   }
 
+  // ============== MAIN STATE (ADA HIGHLIGHTED SESSION) ==============
   return (
     <div className="space-y-8">
       <div>
-        <p className="text-xs font-medium uppercase tracking-[0.32em] text-primary">Fuel Distribution</p>
-        <h1 className="mt-2 text-3xl font-semibold text-foreground">Fuel Bay Monitoring</h1>
+        <p className="text-xs font-medium uppercase tracking-[0.32em] text-primary">
+          Fuel Distribution
+        </p>
+        <h1 className="mt-2 text-3xl font-semibold text-foreground">
+          Fuel Bay Monitoring
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Semua driver menerima QR & PIN otomatis ketika surat perintah dibuat. Halaman ini hanya menampilkan aktivitas
-          pengisian terkini tanpa kontrol manual.
+          Semua driver menerima QR &amp; PIN otomatis ketika surat perintah
+          dibuat. Halaman ini hanya menampilkan aktivitas pengisian terkini
+          tanpa kontrol manual.
         </p>
       </div>
 
@@ -309,10 +401,26 @@ export default function FuelBayPage() {
         description="Kapasitas terminal dan alokasi volume"
         icon={GaugeCircle}
       >
-        <div className="grid gap-3 sm:grid-cols-3 text-sm">
-          <Metric label="Kapasitas Terminal" value={formatVolumeLabel(capacityTotals.totalCapacity)} />
-          <Metric label="Volume Terjadwal" value={formatVolumeLabel(capacityTotals.totalPlannedVolume)} />
-          <Metric label="Sedang Mengisi" value={formatVolumeLabel(capacityTotals.totalLoadingVolume)} />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="grid gap-3 sm:grid-cols-3 text-sm">
+            <Metric
+              label="Kapasitas Terminal"
+              value={formatVolumeLabel(capacityTotals.totalCapacity)}
+            />
+            <Metric
+              label="Kapasitas Saat Ini"
+              value={formatVolumeLabel(capacityTotals.currentCapacity)}
+            />
+            <Metric
+              label="Terpakai Hari Ini"
+              value={formatVolumeLabel(capacityTotals.totalConsumed)}
+            />
+          </div>
+          <CylinderBar
+            label="Level Tangki"
+            current={capacityTotals.currentCapacity}
+            total={capacityTotals.totalCapacity}
+          />
         </div>
       </InfoCard>
 
@@ -335,9 +443,20 @@ export default function FuelBayPage() {
         }
       >
         <div className="grid gap-3 sm:grid-cols-3 text-sm">
-          <Metric label="Sedang Mengisi" value={sessions.filter((s) => s.status === "LOADING").length} />
-          <Metric label="Menunggu Bay" value={sessions.filter((s) => ["GATE_IN", "SCHEDULED"].includes(s.status)).length} />
-          <Metric label="Selesai Hari Ini" value={sessions.filter((s) => s.status === "GATE_OUT").length} />
+          <Metric
+            label="Sedang Mengisi"
+            value={sessions.filter((s) => s.status === "LOADING").length}
+          />
+          <Metric
+            label="Menunggu Bay"
+            value={sessions.filter((s) =>
+              ["GATE_IN", "SCHEDULED"].includes(s.status),
+            ).length}
+          />
+          <Metric
+            label="Selesai Hari Ini"
+            value={sessions.filter((s) => s.status === "GATE_OUT").length}
+          />
         </div>
       </InfoCard>
 
@@ -348,32 +467,71 @@ export default function FuelBayPage() {
       >
         <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
           <div className="grid gap-3 sm:grid-cols-3 text-sm">
-            <Metric label="Total Kapasitas" value={formatVolumeLabel(capacityTotals.totalCapacity)} />
-            <Metric label="Volume Terjadwal" value={formatVolumeLabel(capacityTotals.totalPlannedVolume)} />
-            <Metric label="Sedang Mengisi" value={formatVolumeLabel(capacityTotals.totalLoadingVolume)} />
+            <Metric
+              label="Total Kapasitas"
+              value={formatVolumeLabel(capacityTotals.totalCapacity)}
+            />
+            <Metric
+              label="Volume Terjadwal"
+              value={formatVolumeLabel(capacityTotals.totalPlannedVolume)}
+            />
+            <Metric
+              label="Sedang Mengisi"
+              value={formatVolumeLabel(capacityTotals.totalLoadingVolume)}
+            />
           </div>
           <div className="space-y-4">
             {bayConfigurations.map((config) => {
-              const usage = bayUsage[config.bay] ?? { planned: 0, active: 0 };
-              const plannedPct = config.capacity ? Math.min(100, Math.round((usage.planned / config.capacity) * 100)) : 0;
-              const activePct = config.capacity ? Math.min(100, Math.round((usage.active / config.capacity) * 100)) : 0;
+              const usage = bayUsage[config.bay] ?? {
+                planned: 0,
+                active: 0,
+              };
+              const plannedPct = config.capacity
+                ? Math.min(
+                    100,
+                    Math.round((usage.planned / config.capacity) * 100),
+                  )
+                : 0;
+              const activePct = config.capacity
+                ? Math.min(
+                    100,
+                    Math.round((usage.active / config.capacity) * 100),
+                  )
+                : 0;
               return (
-                <div key={`capacity-${config.bay}`} className="rounded-3xl border border-border/60 p-4">
+                <div
+                  key={`capacity-${config.bay}`}
+                  className="rounded-3xl border border-border/60 p-4"
+                >
                   <div className="flex items-center justify-between text-sm">
                     <div>
-                      <p className="font-semibold text-foreground">{config.bay}</p>
-                      <p className="text-xs text-muted-foreground">Kapasitas {formatVolumeLabel(config.capacity)}</p>
+                      <p className="font-semibold text-foreground">
+                        {config.bay}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Kapasitas {formatVolumeLabel(config.capacity)}
+                      </p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Temperatur: -- °C
+                      </p>
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
-                      <p className="font-semibold text-foreground">{formatVolumeLabel(usage.planned)}</p>
+                      <p className="font-semibold text-foreground">
+                        {formatVolumeLabel(usage.planned)}
+                      </p>
                       <span>Terjadwal</span>
                     </div>
                   </div>
                   <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-border/60">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${plannedPct}%` }} />
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${plannedPct}%` }}
+                    />
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {plannedPct}% terpakai • {formatVolumeLabel(usage.active)} ({activePct}%) sedang berlangsung
+                    {plannedPct}% terpakai •{" "}
+                    {formatVolumeLabel(usage.active)} ({activePct}%) sedang
+                    berlangsung
                   </p>
                 </div>
               );
@@ -387,84 +545,116 @@ export default function FuelBayPage() {
         description="Mapping slot fisik terhadap jenis BBM yang tersedia"
         icon={Warehouse}
       >
-        {/* <div className="flex items-center justify-between pb-3 text-xs text-muted-foreground">
-          <p>Konfigurasi bay dan slot dapat diubah kapan saja.</p>
-          <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">CRUD Ready</span>
-        </div> */}
         <div className="grid gap-4 md:grid-cols-3">
-          {(loadingBays ? defaultBayConfigs : bayConfigurations).map((config) => {
-            const usage = bayUsage[config.bay] ?? { planned: 0, active: 0 };
-            const plannedPct = config.capacity ? Math.min(100, Math.round((usage.planned / config.capacity) * 100)) : 0;
-            return (
-              <div key={config.bay} className="rounded-3xl border border-border/60 p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">{config.bay}</p>
-                    <p className="text-lg font-semibold text-foreground">{config.family}</p>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    {config.slots.length} slot • {formatVolumeLabel(config.capacity)}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">{config.description}</p>
-                <div className="mt-3 rounded-2xl border border-dashed border-border/60 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Terjadwal</p>
-                  <p className="text-sm font-semibold text-foreground">{formatVolumeLabel(usage.planned)}</p>
-                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-border/60">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${plannedPct}%` }} />
-                  </div>
-                </div>
-                <div className="mt-4 space-y-2 text-sm">
-                  {config.slots.map((slot) => (
-                    <div
-                      key={slot.slot}
-                      className="flex items-center justify-between rounded-2xl border border-border/60 px-3 py-2"
-                    >
-                      <div>
-                        <span className="block font-semibold text-foreground">Bay {slot.slot}</span>
-                        <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">{slot.product}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{formatVolumeLabel(slot.capacity)}</span>
+          {(loadingBays ? defaultBayConfigs : bayConfigurations).map(
+            (config) => {
+              const usage = bayUsage[config.bay] ?? {
+                planned: 0,
+                active: 0,
+              };
+              const plannedPct = config.capacity
+                ? Math.min(
+                    100,
+                    Math.round((usage.planned / config.capacity) * 100),
+                  )
+                : 0;
+              return (
+                <div
+                  key={config.bay}
+                  className="rounded-3xl border border-border/60 p-5"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                        {config.bay}
+                      </p>
+                      <p className="text-lg font-semibold text-foreground">
+                        {config.family}
+                      </p>
                     </div>
-                  ))}
-                </div>
-                {config.id && (
-                  <div className="mt-3 flex gap-2">
-                    <BayForm
-                      bay={{
-                        id: config.id,
-                        name: config.bay,
-                        family: config.family,
-                        description: config.description,
-                        capacityLiters: config.capacity,
-                        slots: config.slots.map((s) => ({
-                          slot: s.slot,
-                          product: s.product,
-                          capacityLiters: s.capacity,
-                        })) as BaySlot[],
-                        isActive: true,
-                      }}
-                      onSubmit={handleSaveBay}
-                      renderTrigger={(open) => (
-                        <button
-                          onClick={open}
-                          className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground transition hover:border-primary/60 hover:text-primary"
-                        >
-                          Edit
-                        </button>
-                      )}
-                    />
-                    <button
-                      onClick={() => handleDeleteBay(config.id)}
-                      className="rounded-lg border border-destructive/40 px-3 py-1 text-xs text-destructive transition hover:bg-destructive/10"
-                    >
-                      Delete
-                    </button>
+                    <span className="text-xs text-muted-foreground">
+                      {config.slots.length} slot •{" "}
+                      {formatVolumeLabel(config.capacity)}
+                    </span>
                   </div>
-                )}
-              </div>
-            );
-          })}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {config.description}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Temperatur: -- °C
+                  </p>
+                  <div className="mt-3 rounded-2xl border border-dashed border-border/60 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                      Terjadwal
+                    </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {formatVolumeLabel(usage.planned)}
+                    </p>
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-border/60">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${plannedPct}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm">
+                    {config.slots.map((slot) => (
+                      <div
+                        key={slot.slot}
+                        className="flex items-center justify-between rounded-2xl border border-border/60 px-3 py-2"
+                      >
+                        <div>
+                          <span className="block font-semibold text-foreground">
+                            Bay {slot.slot}
+                          </span>
+                          <span className="text-[0.65rem] uppercase tracking-[0.3em] text-muted-foreground">
+                            {slot.product}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatVolumeLabel(slot.capacity)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {config.id && (
+                    <div className="mt-3 flex gap-2">
+                      <BayForm
+                        bay={{
+                          id: config.id,
+                          name: config.bay,
+                          family: config.family,
+                          description: config.description,
+                          capacityLiters: config.capacity,
+                          slots: config.slots.map((s) => ({
+                            slot: s.slot,
+                            product: s.product,
+                            capacityLiters: s.capacity,
+                          })) as BaySlot[],
+                          isActive: true,
+                        }}
+                        onSubmit={handleSaveBay}
+                        renderTrigger={(open) => (
+                          <button
+                            onClick={open}
+                            className="rounded-lg border border-border/60 px-3 py-1 text-xs text-foreground transition hover:border-primary/60 hover:text-primary"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      />
+                      <button
+                        onClick={() => handleDeleteBay(config.id)}
+                        className="rounded-lg border border-destructive/40 px-3 py-1 text-xs text-destructive transition hover:bg-destructive/10"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            },
+          )}
         </div>
       </InfoCard>
 
@@ -487,23 +677,42 @@ export default function FuelBayPage() {
             </thead>
             <tbody>
               {sessions.map((session) => (
-                <tr key={session.orderId} className="border-t border-border/60 text-sm">
-                  <td className="py-3 pr-4 font-semibold text-foreground">{session.orderId}</td>
+                <tr
+                  key={session.orderId}
+                  className="border-t border-border/60 text-sm"
+                >
+                  <td className="py-3 pr-4 font-semibold text-foreground">
+                    {session.orderId}
+                  </td>
                   <td className="py-3 pr-4">
-                    <div className="font-medium text-foreground">{session.driverName}</div>
-                    <div className="text-xs text-muted-foreground">{session.licensePlate}</div>
+                    <div className="font-medium text-foreground">
+                      {session.driverName}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {session.licensePlate}
+                    </div>
                   </td>
                   <td className="py-3 pr-4">
                     <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${StatusManager.getStatusBadgeClass(session.status)}`}
+                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${StatusManager.getStatusBadgeClass(
+                        session.status,
+                      )}`}
                     >
                       {StatusManager.getStatusConfig(session.status).label}
                     </span>
                   </td>
-                  <td className="py-3 pr-4 text-muted-foreground">{formatTime(session.gate.entry)}</td>
-                  <td className="py-3 pr-4">{session.fuel.slot || "-"}</td>
                   <td className="py-3 pr-4 text-muted-foreground">
-                    {session.fuel.startedAt ? `${formatTime(session.fuel.startedAt)} - ${formatTime(session.fuel.finishedAt)}` : "-"}
+                    {formatTime(session.gate.entry)}
+                  </td>
+                  <td className="py-3 pr-4">
+                    {session.fuel.slot || "-"}
+                  </td>
+                  <td className="py-3 pr-4 text-muted-foreground">
+                    {session.fuel.startedAt
+                      ? `${formatTime(session.fuel.startedAt)} - ${formatTime(
+                          session.fuel.finishedAt,
+                        )}`
+                      : "-"}
                   </td>
                 </tr>
               ))}
@@ -519,27 +728,49 @@ export default function FuelBayPage() {
       >
         <div className="grid gap-5 md:grid-cols-2">
           <div className="space-y-3 rounded-3xl border border-border/60 p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">Driver</p>
-            <p className="text-xl font-semibold text-foreground">{highlighted.driverName}</p>
-            <p className="text-sm text-muted-foreground">{highlighted.licensePlate} · {highlighted.driverId}</p>
-            <p className="text-xs text-muted-foreground">{highlighted.driverEmail}</p>
-            <p className="text-xs text-muted-foreground">{highlighted.company}</p>
+            <p className="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
+              Driver
+            </p>
+            <p className="text-xl font-semibold text-foreground">
+              {highlighted.driverName}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {highlighted.licensePlate} · {highlighted.driverId}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {highlighted.driverEmail}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {highlighted.company}
+            </p>
           </div>
           <div className="space-y-3 text-sm">
             <div className="rounded-3xl border border-border/60 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Produk</p>
-              <p className="text-lg font-semibold text-foreground">{highlighted.product}</p>
-              <p className="text-xs text-muted-foreground">Planned {highlighted.plannedVolume}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                Produk
+              </p>
+              <p className="text-lg font-semibold text-foreground">
+                {highlighted.product}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Planned {highlighted.plannedVolume}
+              </p>
             </div>
             <div className="rounded-3xl border border-border/60 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">Status</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                Status
+              </p>
               <span
-                className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${StatusManager.getStatusBadgeClass(highlighted.status)}`}
+                className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${StatusManager.getStatusBadgeClass(
+                  highlighted.status,
+                )}`}
               >
                 {StatusManager.getStatusConfig(highlighted.status).label}
               </span>
               <p className="mt-2 text-xs text-muted-foreground">
-                Gate In {formatTime(highlighted.gate.entry)} · Loading {formatTime(highlighted.fuel.startedAt)} · Selesai {formatTime(highlighted.fuel.finishedAt)}
+                Gate In {formatTime(highlighted.gate.entry)} · Loading{" "}
+                {formatTime(highlighted.fuel.startedAt)} · Selesai{" "}
+                {formatTime(highlighted.fuel.finishedAt)}
               </p>
             </div>
           </div>
@@ -550,11 +781,55 @@ export default function FuelBayPage() {
 }
 
 function Metric({ label, value }: { label: string; value: number | string }) {
-  const display = typeof value === "number" ? value.toLocaleString("id-ID") : value;
+  const display =
+    typeof value === "number" ? value.toLocaleString("id-ID") : value;
   return (
     <div className="rounded-3xl border border-border/60 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+        {label}
+      </p>
       <p className="mt-2 text-2xl font-semibold text-foreground">{display}</p>
+    </div>
+  );
+}
+
+// Bar silinder lonjong buat level tangki
+function CylinderBar({
+  label,
+  current,
+  total,
+}: {
+  label: string;
+  current: number;
+  total: number;
+}) {
+  // boleh dibikin "step" biar nggak terlalu sensitif (misal 5%)
+  const pctRaw = total > 0 ? (current / total) * 100 : 0;
+  const pct = Math.max(0, Math.min(100, Math.round(pctRaw / 5) * 5)); // step 5%
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>{label}</span>
+        <span>{pct}%</span>
+      </div>
+      <div className="relative h-10 w-full overflow-hidden rounded-full bg-border/60">
+        {/* isi BBM */}
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-500 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+        {/* highlight pinggir biar kaya silinder */}
+        <div className="pointer-events-none absolute inset-0 rounded-full border border-white/20/">
+          <div className="h-full w-full bg-gradient-to-b from-white/15 via-transparent to-black/20 mix-blend-overlay" />
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        {formatVolumeLabel(current)} dari {formatVolumeLabel(total)}
+      </p>
+      <p className="text-[11px] text-muted-foreground">
+        Temperatur BBM: <span className="font-medium">-- °C</span>
+      </p>
     </div>
   );
 }
