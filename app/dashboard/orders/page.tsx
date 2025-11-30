@@ -24,6 +24,7 @@ interface Order {
   destinationName: string;
   destinationAddress: string;
   destinationCoords: string;
+  spaPdfPath?: string | null;
 }
 
 export default function OrdersPage() {
@@ -63,6 +64,7 @@ export default function OrdersPage() {
       destinationName,
       destinationAddress,
       destinationCoords,
+      spaPdfPath: order.spaPdfPath,
     };
   };
 
@@ -278,6 +280,25 @@ export default function OrdersPage() {
             vehicleOptions={vehicleOptions}
             spbuOptions={spbuOptions}
           />
+          <a
+            href={record.spaPdfPath
+              ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${record.spaPdfPath}`
+              : undefined}
+            target="_blank"
+            rel="noreferrer"
+            className={`rounded-lg border px-3 py-1 text-xs font-semibold transition ${
+              record.spaPdfPath
+                ? "border-primary/60 text-primary hover:bg-primary/10"
+                : "border-border/50 text-muted-foreground opacity-60 cursor-not-allowed"
+            }`}
+            onClick={(event) => {
+              if (!record.spaPdfPath) {
+                event.preventDefault();
+              }
+            }}
+          >
+            View SPA
+          </a>
         </div>
       )
     }

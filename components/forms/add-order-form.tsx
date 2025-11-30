@@ -106,7 +106,7 @@ function AddOrderForm({
       driverId: randomDriver?.meta?.driverCode || randomDriver?.label || "",
       product: randomProduct,
       planned: `${(7000 + Math.floor(Math.random() * 2000)).toLocaleString("id-ID")} L`,
-      planned: `${7000 + Math.floor(Math.random() * 2000)}`,
+      // planned: `${7000 + Math.floor(Math.random() * 2000)}`,
       destinationName: randomSpbu?.label || "",
       destinationAddress: randomSpbu?.meta?.address || "",
       destinationCoords: randomSpbu?.meta?.coords || "",
@@ -401,9 +401,24 @@ function AddOrderForm({
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="schedule" className="text-sm font-medium text-foreground">
-              Scheduled Date & Time
-            </label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="schedule" className="text-sm font-medium text-foreground">
+                Scheduled Date & Time
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = new Date();
+                  const localDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .slice(0, 16);
+                  setFormData(prev => ({ ...prev, schedule: localDateTime }));
+                }}
+                className="rounded-lg bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20 transition"
+              >
+                Today
+              </button>
+            </div>
             <div className="relative">
               <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input

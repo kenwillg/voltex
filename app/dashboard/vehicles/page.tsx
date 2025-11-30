@@ -81,19 +81,28 @@ export default function VehiclesPage() {
   };
 
   const handleSaveVehicle = async (vehicle: Omit<Vehicle, "id">, id?: string) => {
-    if (id) {
-      await fetch(`/api/vehicles/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...vehicle,
-          capacityLiters: vehicle.capacityLiters,
-        }),
-      });
-    } else {
-      await handleAddVehicle(vehicle);
+    try {
+      if (id) {
+        const response = await fetch(`/api/vehicles/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(vehicle),
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("Update error:", errorData);
+          alert(`Failed to update vehicle: ${errorData.error || errorData.message}`);
+          return;
+        }
+      } else {
+        await handleAddVehicle(vehicle);
+      }
+      await fetchVehicles();
+    } catch (error) {
+      console.error("Save vehicle error:", error);
+      alert("An error occurred while saving the vehicle");
     }
-    await fetchVehicles();
   };
 
   const handleDeleteVehicle = async (id: string) => {

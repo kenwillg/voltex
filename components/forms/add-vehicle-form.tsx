@@ -64,11 +64,16 @@ function AddVehicleForm({ vehicle, onSubmit, renderTrigger }: AddVehicleFormProp
     e.preventDefault();
     setIsSubmitting(true);
     try {
+      const capacity = formData.capacityKl?.trim();
+      const capacityLiters = capacity && !isNaN(parseFloat(capacity)) 
+        ? Math.round(parseFloat(capacity) * 1000) 
+        : undefined;
+      
       await onSubmit({
         licensePlate: formData.licensePlate,
-        vehicleType: formData.vehicleType,
-        capacityLiters: formData.capacityKl ? Math.round(parseFloat(formData.capacityKl) * 1000) : undefined,
-        ownerName: formData.ownerName,
+        vehicleType: formData.vehicleType || undefined,
+        capacityLiters,
+        ownerName: formData.ownerName || undefined,
       }, vehicle?.id);
       setFormData({ licensePlate: "", vehicleType: "", capacityKl: "", ownerName: "" });
       close();
@@ -126,7 +131,6 @@ function AddVehicleForm({ vehicle, onSubmit, renderTrigger }: AddVehicleFormProp
                   onChange={handleChange}
                   className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   placeholder="Hino 500 / Isuzu Giga"
-                  required
                 />
               </div>
             </div>
@@ -146,7 +150,6 @@ function AddVehicleForm({ vehicle, onSubmit, renderTrigger }: AddVehicleFormProp
                   onChange={handleChange}
                   className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   placeholder="16"
-                  required
                 />
               </div>
             </div>
@@ -165,7 +168,6 @@ function AddVehicleForm({ vehicle, onSubmit, renderTrigger }: AddVehicleFormProp
                   onChange={handleChange}
                   className="w-full rounded-2xl border border-border/70 bg-background/60 pl-10 pr-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/20"
                   placeholder="PT Voltex Logistics"
-                  required
                 />
             </div>
           </div>
