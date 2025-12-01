@@ -16,8 +16,8 @@ interface QrGeneratorProps {
 
 export function QrGenerator({
   stage = "UNIVERSAL",
-  title = "Driver QR Credential",
-  description = "Generate or resend gate credentials to drivers. The payload can also be copied for manual simulations.",
+  title = "SPA QR Credential",
+  description = "Generate or resend gate credentials per SPA (SPA + driver). The payload can also be copied for manual simulations.",
 }: QrGeneratorProps) {
   const { sessions, generateDriverQr, emailDriverQr } = useStatusContext();
   const [selectedOrder, setSelectedOrder] = useState<string>(sessions[0]?.orderId ?? "");

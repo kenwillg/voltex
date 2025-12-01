@@ -16,7 +16,7 @@ bun dev
 # BEFORE WE START:
 ### DOWNLOAD AND IMPORT ANACONDA ENVIRONMENT [`HERE`](https://drive.google.com/file/d/13eEkJw-7OUPv7iH3_9yIMb7Uc-kZ9GOy/view?usp=sharing)
 ### DOWNLOAD AND RUN THE PYTHON OCR AND QR SCANNER APP [`HERE`](https://drive.google.com/file/d/1M8QLYnjUb9Z0jXxsGDTGjeGu5gU2wiC7/view?usp=sharing)
-- Make sure to run it using: `& C:/Users/Kenneth/anaconda3/envs/ocr-voltex/python.exe d:/code/voltex-ocr/ocr.py` (the d:/code/... is where you place the ocr.py file. This is because .py files aren't like .ipynb where you can choose a kernel.
+- Make sure to run it using: `& C:/Users/Kenneth/anaconda3/envs/ocr-voltex/python.exe d:/code/voltex-ocr/ocr.py` (the d:/code/... is where you place the ocr.py file. This is because .py files aren't like .ipynb where you can choose a kernel.)
 
 
 ## Deploy on Vercel

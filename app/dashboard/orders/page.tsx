@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { InfoCard } from "@/components/ui/card";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import AddOrderForm from "@/components/forms/add-order-form";
@@ -9,8 +9,10 @@ import { Table } from "@/components/ui/table";
 import { StatusManager, ComponentStatus } from "@/lib/base-component";
 import { useCombinedFilters } from "@/contexts/filter-context";
 import { usePathname } from "next/navigation";
+import QRCode from "qrcode";
 
 interface Order {
+  id?: string;
   spNumber: string;
   licensePlate: string;
   driverId: string;
@@ -35,9 +37,18 @@ export default function OrdersPage() {
   const [productOptions, setProductOptions] = useState<Array<{ id: string; name: string }>>([]);
   const combinedFilters = useCombinedFilters();
   const pathname = usePathname();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [systemMessage, setSystemMessage] = useState<string | null>("Sedang mengambil data...");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [searchField, setSearchField] = useState("spNumber");
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrOrder, setQrOrder] = useState<Order | null>(null);
+  const [qrValue, setQrValue] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const mapOrderFromApi = (order: any): Order => {
     const schedule = new Date(order.scheduledAt);
@@ -45,6 +56,7 @@ export default function OrdersPage() {
     const destinationAddress = order.spbu?.address || order.destination?.destinationAddress || "-";
     const destinationCoords = order.spbu?.coords || order.destination?.destinationCoords || "-";
     return {
+      id: order.id,
       spNumber: order.spNumber,
       licensePlate: order.vehicle?.licensePlate || order.vehicleId,
       vehicleId: order.vehicle?.id || order.vehicleId,
@@ -70,6 +82,8 @@ export default function OrdersPage() {
 
   useEffect(() => {
     const load = async () => {
+      setIsLoading(true);
+      setSystemMessage("Sedang mengambil data...");
       const [driversRes, vehiclesRes, spbuRes, ordersRes, productsRes] = await Promise.all([
         fetch("/api/drivers"),
         fetch("/api/vehicles"),
@@ -114,10 +128,27 @@ export default function OrdersPage() {
           productsData.map((p: any) => ({ id: p.id ?? p.name, name: p.name }))
         );
       }
+      setSystemMessage(null);
+      setIsLoading(false);
     };
 
-    load();
+    load().catch(() => {
+      setSystemMessage("Gagal memuat data, coba muat ulang.");
+      setIsLoading(false);
+    });
   }, []);
+
+  useEffect(() => {
+    if (!qrOpen || !qrValue || !qrCanvasRef.current) return;
+
+    QRCode.toCanvas(qrCanvasRef.current, qrValue, {
+      width: 256,
+      margin: 1,
+    }).catch((err) => {
+      console.error("QR render error:", err);
+      setQrError("Failed to render QR code");
+    });
+  }, [qrOpen, qrValue]);
 
   // Handle search changes
   const handleSearchChange = (term: string, field: string) => {
@@ -173,34 +204,93 @@ export default function OrdersPage() {
     return filtered;
   }, [orders, combinedFilters, searchTerm, searchField]);
 
+  // --- QR helpers ---
+  const openQrForOrder = async (order: Order) => {
+    if (!order.id) return;
+    setQrOrder(order);
+    setQrOpen(true);
+    setQrLoading(true);
+    setQrError(null);
+    setQrValue(null);
+
+    try {
+      const res = await fetch(`/api/orders/${order.id}/qr`);
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.qr) {
+        throw new Error(data.reason || "Failed to fetch QR code");
+      }
+      setQrValue(data.qr as string);
+    } catch (err: any) {
+      console.error(err);
+      setQrError(err.message || "Failed to fetch QR code");
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const closeQrModal = () => {
+    setQrOpen(false);
+    setQrOrder(null);
+    setQrValue(null);
+    setQrError(null);
+  };
+
+  const handleDownloadQr = () => {
+    const canvas = qrCanvasRef.current;
+    if (!canvas) return;
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = `${qrOrder?.spNumber || "spa-qr"}.png`;
+    a.click();
+  };
+
   const refreshOrders = async () => {
+    setSystemMessage("Memperbarui data order...");
     const res = await fetch("/api/orders");
     const data = await res.json();
     setOrders(data.map(mapOrderFromApi));
+    setSystemMessage(null);
   };
 
   const handleAddOrder = async (newOrder: Order) => {
+    setIsSaving(true);
+    setSystemMessage("Membuat SPA, harap tunggu...");
     const vehicleId = newOrder.vehicleId || vehicleOptions.find((vehicle) => vehicle.meta?.licensePlate === newOrder.licensePlate)?.value;
     const driverId = newOrder.driverDbId || driverOptions.find((driver) => driver.meta?.driverCode === newOrder.driverId)?.value;
     const spbuId = newOrder.spbuId || (spbuOptions[0]?.value as string);
 
-    await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...newOrder,
-        vehicleId,
-        driverId,
-        spbuId,
-        plannedLiters: newOrder.plannedLiters,
-        scheduledAt: newOrder.schedule,
-        destinationName: newOrder.destinationName,
-        destinationAddress: newOrder.destinationAddress,
-        destinationCoords: newOrder.destinationCoords,
-      }),
-    });
+    try {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newOrder,
+          vehicleId,
+          driverId,
+          spbuId,
+          plannedLiters: newOrder.plannedLiters,
+          scheduledAt: newOrder.schedule,
+          destinationName: newOrder.destinationName,
+          destinationAddress: newOrder.destinationAddress,
+          destinationCoords: newOrder.destinationCoords,
+        }),
+      });
 
-    await refreshOrders();
+      if (!res.ok) {
+        throw new Error("Create order failed");
+      }
+
+      await refreshOrders();
+      setSystemMessage("Order berhasil dibuat.");
+    } catch (err) {
+      console.error(err);
+      setSystemMessage("Gagal membuat order, coba ulangi.");
+    } finally {
+      setIsSaving(false);
+      setTimeout(() => setSystemMessage(null), 1500);
+    }
   };
 
   const handleRepeatOrder = async (repeatedOrder: Order) => {
@@ -279,7 +369,15 @@ export default function OrdersPage() {
             driverOptions={driverOptions}
             vehicleOptions={vehicleOptions}
             spbuOptions={spbuOptions}
+            loading={isSaving}
           />
+          <button
+            type="button"
+            onClick={() => openQrForOrder(record)}
+            className="rounded-lg border border-blue-500/60 px-3 py-1 text-xs text-blue-400 transition hover:bg-blue-500/10"
+          >
+            QR SPA
+          </button>
           <a
             href={record.spaPdfPath
               ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${record.spaPdfPath}`
@@ -329,11 +427,74 @@ export default function OrdersPage() {
             driverOptions={driverOptions}
             vehicleOptions={vehicleOptions}
             spbuOptions={spbuOptions}
+            loading={isSaving}
           />
         }
       >
-        <Table columns={orderColumns} data={filteredOrders} />
+        {isLoading ? (
+          <div className="rounded-2xl border border-dashed border-border/60 bg-background/40 p-6 text-sm text-muted-foreground">
+            Sedang mengambil data...
+          </div>
+        ) : (
+          <Table columns={orderColumns} data={filteredOrders} />
+        )}
       </InfoCard>
+
+      {systemMessage && (
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-primary">
+          {systemMessage}
+        </div>
+      )}
+
+      {qrOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-md rounded-3xl bg-background p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">
+                  SPA QR Code
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  {qrOrder?.spNumber} · {qrOrder?.driverId}
+                </p>
+              </div>
+              <button
+                onClick={closeQrModal}
+                className="rounded-full px-3 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center gap-3">
+              {qrLoading && (
+                <p className="text-sm text-muted-foreground">Generating QR...</p>
+              )}
+              {qrError && (
+                <p className="text-sm text-destructive">
+                  {qrError}
+                </p>
+              )}
+              {!qrLoading && !qrError && (
+                <>
+                  <div className="rounded-2xl bg-white p-4">
+                    <canvas ref={qrCanvasRef} />
+                  </div>
+                  <p className="break-all text-[10px] text-muted-foreground">
+                    {qrValue}
+                  </p>
+                  <button
+                    onClick={handleDownloadQr}
+                    className="mt-2 rounded-2xl bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-primary-foreground hover:bg-primary/90"
+                  >
+                    Download PNG
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

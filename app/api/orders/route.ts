@@ -70,23 +70,48 @@ export async function POST(req: Request) {
     ? payload.plannedLiters.replace(/[^0-9.]/g, "")
     : payload.plannedLiters;
 
-  const order = await prisma.order.create({
-    data: {
-      spNumber: payload.spNumber || formatSpNumber(),
-      spbuId: payload.spbuId,
-      vehicleId: payload.vehicleId,
-      driverId: payload.driverId,
-      product: payload.product,
-      plannedLiters: new Prisma.Decimal(plannedLiters || 0),
-      scheduledAt: payload.scheduledAt ? new Date(payload.scheduledAt) : new Date(),
-      notes: formatNotes(payload),
-    },
-    include: {
-      driver: true,
-      vehicle: true,
-      spbu: true,
-    },
-  });
+  // Ensure SP number uniqueness (retry if conflict)
+  const makeOrder = async (spNumber: string) =>
+    prisma.order.create({
+      data: {
+        spNumber,
+        spbuId: payload.spbuId,
+        vehicleId: payload.vehicleId,
+        driverId: payload.driverId,
+        product: payload.product,
+        plannedLiters: new Prisma.Decimal(plannedLiters || 0),
+        scheduledAt: payload.scheduledAt ? new Date(payload.scheduledAt) : new Date(),
+        notes: formatNotes(payload),
+      },
+      include: {
+        driver: true,
+        vehicle: true,
+        spbu: true,
+      },
+    });
+
+  let order;
+  let attempts = 0;
+  let spNumber = payload.spNumber || formatSpNumber();
+
+  while (attempts < 3) {
+    try {
+      order = await makeOrder(spNumber);
+      break;
+    } catch (err: any) {
+      // P2002 = unique constraint
+      if (err?.code === "P2002" && err?.meta?.target?.includes("sp_number")) {
+        attempts += 1;
+        spNumber = formatSpNumber();
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (!order) {
+    throw new Error("Failed to create order after retries");
+  }
 
   // Always ensure an initial load session is created
   await prisma.loadSession.create({

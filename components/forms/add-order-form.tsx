@@ -35,6 +35,7 @@ interface AddOrderFormProps {
   vehicleOptions: SelectOption[];
   spbuOptions: Array<SelectOption & { meta?: { address?: string; coords?: string; code?: string } }>;
   productOptions?: Array<{ id?: string; name: string } | string>;
+  loading?: boolean;
 }
 
 function AddOrderForm({
@@ -45,8 +46,10 @@ function AddOrderForm({
   vehicleOptions,
   spbuOptions,
   productOptions = [],
+  loading = false,
 }: AddOrderFormProps) {
   const { isOpen, open, close } = useModal();
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     licensePlate: existingOrder?.licensePlate || vehicleOptions[0]?.meta?.licensePlate || "",
     driverId: existingOrder?.driverId || driverOptions[0]?.meta?.driverCode || driverOptions[0]?.value || "",
@@ -158,9 +161,12 @@ function AddOrderForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || submitting) return;
+    setSubmitting(true);
 
     const plannedLiters = formData.planned ? Number(String(formData.planned).replace(/[^0-9.]/g, "")) : 0;
     const newOrder: Order = {
+      // Always generate a new SP number for repeat to avoid conflicts; data stays the same.
       spNumber: generateSpNumber(),
       licensePlate: formData.licensePlate,
       driverId: formData.driverId,
@@ -176,31 +182,35 @@ function AddOrderForm({
       destinationCoords: formData.destinationCoords
     };
 
-    if (existingOrder && onRepeatOrder) {
-      await onRepeatOrder(newOrder);
-    } else {
-      await onAddOrder(newOrder);
+    try {
+      if (existingOrder && onRepeatOrder) {
+        await onRepeatOrder(newOrder);
+      } else {
+        await onAddOrder(newOrder);
+      }
+      
+      // Reset form
+      setFormData({
+        licensePlate: vehicleOptions[0]?.meta?.licensePlate || "",
+        vehicleId: (vehicleOptions[0]?.value as string) || "",
+        driverId: driverOptions[0]?.meta?.driverCode || "",
+        driverDbId: (driverOptions[0]?.value as string) || "",
+        product:
+          (productOptions[0] && (typeof productOptions[0] === "string" ? productOptions[0] : productOptions[0].name)) ||
+          "",
+        planned: "",
+        destinationName: spbuOptions[0]?.label || "",
+        destinationAddress: spbuOptions[0]?.meta?.address || "",
+        destinationCoords: spbuOptions[0]?.meta?.coords || "",
+        spbuId: (spbuOptions[0]?.value as string) || "",
+        schedule: "",
+        status: "SCHEDULED"
+      });
+      
+      close();
+    } finally {
+      setSubmitting(false);
     }
-    
-    // Reset form
-    setFormData({
-      licensePlate: vehicleOptions[0]?.meta?.licensePlate || "",
-      vehicleId: (vehicleOptions[0]?.value as string) || "",
-      driverId: driverOptions[0]?.meta?.driverCode || "",
-      driverDbId: (driverOptions[0]?.value as string) || "",
-      product:
-        (productOptions[0] && (typeof productOptions[0] === "string" ? productOptions[0] : productOptions[0].name)) ||
-        "",
-      planned: "",
-      destinationName: spbuOptions[0]?.label || "",
-      destinationAddress: spbuOptions[0]?.meta?.address || "",
-      destinationCoords: spbuOptions[0]?.meta?.coords || "",
-      spbuId: (spbuOptions[0]?.value as string) || "",
-      schedule: "",
-      status: "SCHEDULED"
-    });
-    
-    close();
   };
 
   const buttonTitle = existingOrder ? "Repeat Order" : "New Order";
@@ -234,7 +244,8 @@ function AddOrderForm({
           existingOrder 
             ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
             : "bg-primary text-primary-foreground hover:bg-primary/90"
-        }`}
+        } ${loading ? "cursor-not-allowed opacity-70" : ""}`}
+        disabled={loading}
       >
         <ButtonIcon className="h-4 w-4" /> {buttonTitle}
       </button>
@@ -461,9 +472,14 @@ function AddOrderForm({
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+              disabled={loading || submitting}
+              className="flex-1 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {existingOrder ? "Repeat Order" : "Create Order"}
+              {loading || submitting
+                ? "Mengirim..."
+                : existingOrder
+                  ? "Repeat Order"
+                  : "Create Order"}
             </button>
           </div>
         </form>

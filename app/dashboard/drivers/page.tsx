@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { InfoCard } from "@/components/ui/card";
 import { Table } from "@/components/ui/table";
 import DynamicSearch from "@/components/ui/dynamic-search";
@@ -8,7 +8,6 @@ import AddDriverForm from "@/components/forms/add-driver-form";
 import { Users } from "lucide-react";
 import { useCombinedFilters } from "@/contexts/filter-context";
 import { usePathname } from "next/navigation";
-import QRCode from "qrcode"; // ⬅ NEW
 
 interface Driver {
   id: string; // DB id
@@ -27,14 +26,6 @@ export default function DriversPage() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [searchField, setSearchField] = useState("name");
-
-  // --- QR modal state ---
-  const [qrOpen, setQrOpen] = useState(false);
-  const [qrDriver, setQrDriver] = useState<Driver | null>(null);
-  const [qrValue, setQrValue] = useState<string | null>(null);
-  const [qrLoading, setQrLoading] = useState(false);
-  const [qrError, setQrError] = useState<string | null>(null);
-  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const fetchDrivers = async () => {
@@ -55,19 +46,6 @@ export default function DriversPage() {
 
     fetchDrivers();
   }, []);
-
-  // when qrValue changes + modal is open, draw it into canvas
-  useEffect(() => {
-    if (!qrOpen || !qrValue || !qrCanvasRef.current) return;
-
-    QRCode.toCanvas(qrCanvasRef.current, qrValue, {
-      width: 256,
-      margin: 1,
-    }).catch((err) => {
-      console.error("QR render error:", err);
-      setQrError("Failed to render QR code");
-    });
-  }, [qrOpen, qrValue]);
 
   // Handle search changes
   const handleSearchChange = (term: string, field: string) => {
@@ -181,47 +159,6 @@ export default function DriversPage() {
     setDrivers((prev) => prev.filter((d) => d.id !== id));
   };
 
-  // --- QR helpers ---
-  const openQrForDriver = async (driver: Driver) => {
-    setQrDriver(driver);
-    setQrOpen(true);
-    setQrLoading(true);
-    setQrError(null);
-    setQrValue(null);
-
-    try {
-      const res = await fetch(`/api/drivers/${driver.id}/qr`);
-      const data = await res.json();
-      if (!res.ok || !data.ok || !data.qr) {
-        throw new Error(data.reason || "Failed to fetch QR code");
-      }
-      setQrValue(data.qr as string);
-    } catch (err: any) {
-      console.error(err);
-      setQrError(err.message || "Failed to fetch QR code");
-    } finally {
-      setQrLoading(false);
-    }
-  };
-
-  const closeQrModal = () => {
-    setQrOpen(false);
-    setQrDriver(null);
-    setQrValue(null);
-    setQrError(null);
-  };
-
-  const handleDownloadQr = () => {
-    const canvas = qrCanvasRef.current;
-    if (!canvas) return;
-
-    const dataUrl = canvas.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `${qrDriver?.code || "driver-qr"}.png`;
-    a.click();
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -290,12 +227,6 @@ export default function DriversPage() {
                     )}
                   />
                   <button
-                    onClick={() => openQrForDriver(record)}
-                    className="rounded-lg border border-blue-500/60 px-3 py-1 text-xs text-blue-400 transition hover:bg-blue-500/10"
-                  >
-                    QR Code
-                  </button>
-                  <button
                     onClick={() => handleDeleteDriver(record.id)}
                     className="rounded-lg border border-destructive/40 px-3 py-1 text-xs text-destructive transition hover:bg-destructive/10"
                   >
@@ -308,57 +239,6 @@ export default function DriversPage() {
           data={filteredDrivers}
         />
       </InfoCard>
-
-      {/* QR MODAL */}
-      {qrOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
-          <div className="w-full max-w-md rounded-3xl bg-background p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  Driver QR Code
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  {qrDriver?.name} ({qrDriver?.code})
-                </p>
-              </div>
-              <button
-                onClick={closeQrModal}
-                className="rounded-full px-3 py-1 text-xs text-muted-foreground hover:bg-muted/40"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="flex flex-col items-center gap-3">
-              {qrLoading && (
-                <p className="text-sm text-muted-foreground">Generating QR...</p>
-              )}
-              {qrError && (
-                <p className="text-sm text-destructive">
-                  {qrError}
-                </p>
-              )}
-              {!qrLoading && !qrError && (
-                <>
-                  <div className="rounded-2xl bg-white p-4">
-                    <canvas ref={qrCanvasRef} />
-                  </div>
-                  <p className="break-all text-[10px] text-muted-foreground">
-                    {qrValue}
-                  </p>
-                  <button
-                    onClick={handleDownloadQr}
-                    className="mt-2 rounded-2xl bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-primary-foreground hover:bg-primary/90"
-                  >
-                    Download PNG
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

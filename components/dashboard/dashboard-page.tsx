@@ -247,7 +247,7 @@ export function DashboardPage() {
 
           <div className="space-y-3 border-t border-border/60 px-6 py-6">
             <button className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary/10 px-4 py-3 text-sm font-semibold text-primary transition hover:bg-primary/20">
-              <QrCode className="h-4 w-4" /> Generate Driver QR
+              <QrCode className="h-4 w-4" /> Generate SPA QR
             </button>
             <button className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 px-4 py-3 text-sm font-medium text-muted-foreground transition hover:text-foreground">
               <LogOut className="h-4 w-4" /> Sign out

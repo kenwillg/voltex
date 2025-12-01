@@ -176,7 +176,7 @@ export function Sidebar({
         {/* Actions Section */}
         <div className="space-y-3 border-t border-border/60 px-6 py-6">
           <button className={sidebarComponent.getActionButtonStyles("primary")}>
-            <QrCode className="h-4 w-4" /> Generate Driver QR
+            <QrCode className="h-4 w-4" /> Generate SPA QR
           </button>
           <button className={sidebarComponent.getActionButtonStyles("secondary")}>
             <LogOut className="h-4 w-4" /> Sign out
