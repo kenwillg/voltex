@@ -97,6 +97,8 @@ model Order {
   notes         String?
   qrCodeValue   String?       @unique @map("qr_code_value")
   qrExpiresAt   DateTime?     @map("qr_expires_at") @db.Timestamptz(6)
+  spaPdfPath    String?       @map("spa_pdf_path")
+  qrCodePath    String?       @map("qr_code_path")
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
   loadSessions  LoadSession[]

@@ -4,12 +4,20 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { InfoCard } from "@/components/ui/card";
 import DynamicSearch from "@/components/ui/dynamic-search";
 import AddOrderForm from "@/components/forms/add-order-form";
-import { Layers3, MapPin, User } from "lucide-react";
+import { Layers3, MapPin, User, MoreHorizontal, FileText, QrCode, Download, RefreshCw } from "lucide-react";
 import { Table } from "@/components/ui/table";
 import { StatusManager, ComponentStatus } from "@/lib/base-component";
 import { useCombinedFilters } from "@/contexts/filter-context";
 import { usePathname } from "next/navigation";
 import QRCode from "qrcode";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Order {
   id?: string;
@@ -27,6 +35,7 @@ interface Order {
   destinationAddress: string;
   destinationCoords: string;
   spaPdfPath?: string | null;
+  qrCodePath?: string | null;
 }
 
 export default function OrdersPage() {
@@ -77,6 +86,7 @@ export default function OrdersPage() {
       destinationAddress,
       destinationCoords,
       spaPdfPath: order.spaPdfPath,
+      qrCodePath: order.qrCodePath,
     };
   };
 
@@ -159,30 +169,30 @@ export default function OrdersPage() {
   // Custom filtering logic that combines header and search filters
   const filteredOrders = useMemo(() => {
     let filtered = [...orders];
-    
+
     // Apply header filters (from dropdown)
     if (combinedFilters.status && Array.isArray(combinedFilters.status)) {
-      filtered = filtered.filter(order => 
+      filtered = filtered.filter(order =>
         combinedFilters.status.includes(order.status.toLowerCase())
       );
     }
-    
+
     if (combinedFilters.product) {
-      filtered = filtered.filter(order => 
+      filtered = filtered.filter(order =>
         order.product.toLowerCase().replace(/\s+/g, '-') === combinedFilters.product
       );
     }
-    
+
     if (combinedFilters.dateRange) {
       // Apply date range filtering logic here
     }
-    
+
     if (combinedFilters.driver) {
-      filtered = filtered.filter(order => 
+      filtered = filtered.filter(order =>
         order.driverId.toLowerCase().includes(combinedFilters.driver.toLowerCase())
       );
     }
-    
+
     // Apply search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -196,11 +206,11 @@ export default function OrdersPage() {
             return order.driverId.toLowerCase().includes(term);
           default:
             return order.spNumber.toLowerCase().includes(term) ||
-                   order.licensePlate.toLowerCase().includes(term);
+              order.licensePlate.toLowerCase().includes(term);
         }
       });
     }
-    
+
     return filtered;
   }, [orders, combinedFilters, searchTerm, searchField]);
 
@@ -212,6 +222,11 @@ export default function OrdersPage() {
     setQrLoading(true);
     setQrError(null);
     setQrValue(null);
+
+    if (order.qrCodePath) {
+      setQrLoading(false);
+      return;
+    }
 
     try {
       const res = await fetch(`/api/orders/${order.id}/qr`);
@@ -235,7 +250,32 @@ export default function OrdersPage() {
     setQrError(null);
   };
 
+  const downloadQrImage = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("Download failed", error);
+      // Fallback
+      window.open(url, '_blank');
+    }
+  };
+
   const handleDownloadQr = () => {
+    if (qrOrder?.qrCodePath) {
+      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${qrOrder.qrCodePath}`;
+      downloadQrImage(url, `QR-${qrOrder.spNumber}.png`);
+      return;
+    }
+
     const canvas = qrCanvasRef.current;
     if (!canvas) return;
 
@@ -304,30 +344,36 @@ export default function OrdersPage() {
 
   // Enhanced columns with repeat order action
   const orderColumns = [
-    { key: "spNumber", label: "SP Number", render: (value: string) => (
-      <span className="font-semibold text-foreground">{value}</span>
-    )},
-    { key: "licensePlate", label: "Kendaraan", render: (value: string) => {
-      const vehicle = findVehicle(value);
-      return (
-        <div>
-          <p className="font-semibold text-primary">{value}</p>
-          <p className="text-xs text-muted-foreground">{vehicle?.label?.split("•")[1]?.trim() ?? "Unit"}</p>
-        </div>
-      );
-    }},
-    { key: "driverId", label: "Driver", render: (value: string) => {
-      const driver = findDriver(value);
-      return (
-        <div className="flex items-center gap-2">
-          <User className="h-3.5 w-3.5 text-primary" />
+    {
+      key: "spNumber", label: "SP Number", render: (value: string) => (
+        <span className="font-semibold text-foreground">{value}</span>
+      )
+    },
+    {
+      key: "licensePlate", label: "Kendaraan", render: (value: string) => {
+        const vehicle = findVehicle(value);
+        return (
           <div>
-            <p className="font-semibold text-foreground">{driver?.label ?? value}</p>
-            <p className="text-xs text-muted-foreground">{value}</p>
+            <p className="font-semibold text-primary">{value}</p>
+            <p className="text-xs text-muted-foreground">{vehicle?.label?.split("•")[1]?.trim() ?? "Unit"}</p>
           </div>
-        </div>
-      );
-    }},
+        );
+      }
+    },
+    {
+      key: "driverId", label: "Driver", render: (value: string) => {
+        const driver = findDriver(value);
+        return (
+          <div className="flex items-center gap-2">
+            <User className="h-3.5 w-3.5 text-primary" />
+            <div>
+              <p className="font-semibold text-foreground">{driver?.label ?? value}</p>
+              <p className="text-xs text-muted-foreground">{value}</p>
+            </div>
+          </div>
+        );
+      }
+    },
     { key: "product", label: "Product" },
     {
       key: "plannedLiters",
@@ -349,55 +395,70 @@ export default function OrdersPage() {
       ),
     },
     { key: "schedule", label: "Scheduled", className: "text-muted-foreground" },
-    { key: "status", label: "Status", render: (value: string) => (
-      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-        StatusManager.getStatusBadgeClass(value as ComponentStatus) || "bg-primary/10 text-primary"
-      }`}>
-        {value}
-      </span>
-    )},
-    { 
-      key: "actions", 
-      label: "Actions", 
+    {
+      key: "status", label: "Status", render: (value: string) => (
+        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${StatusManager.getStatusBadgeClass(value as ComponentStatus) || "bg-primary/10 text-primary"
+          }`}>
+          {value}
+        </span>
+      )
+    },
+    {
+      key: "actions",
+      label: "Actions",
       render: (_value: unknown, record: Order) => (
-        <div className="flex items-center gap-2">
-          <AddOrderForm 
-            onAddOrder={handleAddOrder}
-            onRepeatOrder={handleRepeatOrder}
-            existingOrder={record}
-            productOptions={productOptions}
-            driverOptions={driverOptions}
-            vehicleOptions={vehicleOptions}
-            spbuOptions={spbuOptions}
-            loading={isSaving}
-          />
-          <button
-            type="button"
-            onClick={() => openQrForOrder(record)}
-            className="rounded-lg border border-blue-500/60 px-3 py-1 text-xs text-blue-400 transition hover:bg-blue-500/10"
-          >
-            QR SPA
-          </button>
-          <a
-            href={record.spaPdfPath
-              ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${record.spaPdfPath}`
-              : undefined}
-            target="_blank"
-            rel="noreferrer"
-            className={`rounded-lg border px-3 py-1 text-xs font-semibold transition ${
-              record.spaPdfPath
-                ? "border-primary/60 text-primary hover:bg-primary/10"
-                : "border-border/50 text-muted-foreground opacity-60 cursor-not-allowed"
-            }`}
-            onClick={(event) => {
-              if (!record.spaPdfPath) {
-                event.preventDefault();
+        <DropdownMenu>
+          <DropdownMenuTrigger className="flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground">
+            <MoreHorizontal className="h-4 w-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel>Order Actions</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem onClick={() => openQrForOrder(record)}>
+              <QrCode className="mr-2 h-4 w-4" />
+              <span>Show QR Code</span>
+            </DropdownMenuItem>
+
+            {record.spaPdfPath ? (
+              <DropdownMenuItem asChild>
+                <a
+                  href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${record.spaPdfPath}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  <span>View SPA</span>
+                </a>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem className="pointer-events-none opacity-50">
+                <FileText className="mr-2 h-4 w-4" />
+                <span>View SPA PDF</span>
+              </DropdownMenuItem>
+            )}
+
+            <AddOrderForm
+              onAddOrder={handleAddOrder}
+              onRepeatOrder={handleRepeatOrder}
+              existingOrder={record}
+              productOptions={productOptions}
+              driverOptions={driverOptions}
+              vehicleOptions={vehicleOptions}
+              spbuOptions={spbuOptions}
+              loading={isSaving}
+              customTrigger={
+                <button
+                  type="button"
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  <span>Repeat Order</span>
+                </button>
               }
-            }}
-          >
-            View SPA
-          </a>
-        </div>
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
       )
     }
   ];
@@ -410,7 +471,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Dynamic Search */}
-      <DynamicSearch 
+      <DynamicSearch
         currentPath={pathname}
         onSearchChange={handleSearchChange}
         className="max-w-md"
@@ -478,15 +539,24 @@ export default function OrdersPage() {
               {!qrLoading && !qrError && (
                 <>
                   <div className="rounded-2xl bg-white p-4">
-                    <canvas ref={qrCanvasRef} />
+                    {qrOrder?.qrCodePath ? (
+                      <img
+                        src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${qrOrder.qrCodePath}`}
+                        alt="SPA QR Code"
+                        className="h-64 w-64 object-contain"
+                      />
+                    ) : (
+                      <canvas ref={qrCanvasRef} />
+                    )}
                   </div>
                   <p className="break-all text-[10px] text-muted-foreground">
-                    {qrValue}
+                    {qrValue || "Stored QR"}
                   </p>
                   <button
                     onClick={handleDownloadQr}
-                    className="mt-2 rounded-2xl bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-primary-foreground hover:bg-primary/90"
+                    className="mt-2 rounded-2xl bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-primary-foreground hover:bg-primary/90 flex items-center gap-2"
                   >
+                    <Download className="h-4 w-4" />
                     Download PNG
                   </button>
                 </>

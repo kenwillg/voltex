@@ -36,6 +36,7 @@ interface AddOrderFormProps {
   spbuOptions: Array<SelectOption & { meta?: { address?: string; coords?: string; code?: string } }>;
   productOptions?: Array<{ id?: string; name: string } | string>;
   loading?: boolean;
+  customTrigger?: React.ReactNode;
 }
 
 function AddOrderForm({
@@ -47,6 +48,7 @@ function AddOrderForm({
   spbuOptions,
   productOptions = [],
   loading = false,
+  customTrigger,
 }: AddOrderFormProps) {
   const { isOpen, open, close } = useModal();
   const [submitting, setSubmitting] = useState(false);
@@ -101,7 +103,7 @@ function AddOrderForm({
 
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     setFormData({
       licensePlate: randomVehicle?.meta?.licensePlate || randomVehicle?.label || "",
       vehicleId: (randomVehicle?.value as string) || "",
@@ -109,7 +111,6 @@ function AddOrderForm({
       driverId: randomDriver?.meta?.driverCode || randomDriver?.label || "",
       product: randomProduct,
       planned: `${(7000 + Math.floor(Math.random() * 2000)).toLocaleString("id-ID")} L`,
-      // planned: `${7000 + Math.floor(Math.random() * 2000)}`,
       destinationName: randomSpbu?.label || "",
       destinationAddress: randomSpbu?.meta?.address || "",
       destinationCoords: randomSpbu?.meta?.coords || "",
@@ -166,7 +167,6 @@ function AddOrderForm({
 
     const plannedLiters = formData.planned ? Number(String(formData.planned).replace(/[^0-9.]/g, "")) : 0;
     const newOrder: Order = {
-      // Always generate a new SP number for repeat to avoid conflicts; data stays the same.
       spNumber: generateSpNumber(),
       licensePlate: formData.licensePlate,
       driverId: formData.driverId,
@@ -188,8 +188,7 @@ function AddOrderForm({
       } else {
         await onAddOrder(newOrder);
       }
-      
-      // Reset form
+
       setFormData({
         licensePlate: vehicleOptions[0]?.meta?.licensePlate || "",
         vehicleId: (vehicleOptions[0]?.value as string) || "",
@@ -206,11 +205,34 @@ function AddOrderForm({
         schedule: "",
         status: "SCHEDULED"
       });
-      
+
       close();
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleOpen = (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    if (existingOrder) {
+      setFormData({
+        licensePlate: existingOrder.licensePlate,
+        driverId: existingOrder.driverId,
+        driverDbId: existingOrder.driverDbId ?? "",
+        vehicleId: existingOrder.vehicleId ?? "",
+        product: existingOrder.product,
+        planned: existingOrder.plannedLiters ? String(existingOrder.plannedLiters) : "",
+        destinationName: existingOrder.destinationName,
+        destinationAddress: existingOrder.destinationAddress,
+        destinationCoords: existingOrder.destinationCoords,
+        spbuId: existingOrder.spbuId ?? "",
+        schedule: "",
+        status: "SCHEDULED"
+      });
+    }
+    // Small delay to ensure dropdown closes properly
+    setTimeout(() => open(), 10);
   };
 
   const buttonTitle = existingOrder ? "Repeat Order" : "New Order";
@@ -219,36 +241,22 @@ function AddOrderForm({
 
   return (
     <>
-          <button 
-        onClick={() => {
-          if (existingOrder) {
-            // Pre-fill form with existing order data
-            setFormData({
-              licensePlate: existingOrder.licensePlate,
-              driverId: existingOrder.driverId,
-              driverDbId: existingOrder.driverDbId ?? "",
-              vehicleId: existingOrder.vehicleId ?? "",
-              product: existingOrder.product,
-              planned: existingOrder.plannedLiters ? String(existingOrder.plannedLiters) : "",
-              destinationName: existingOrder.destinationName,
-              destinationAddress: existingOrder.destinationAddress,
-              destinationCoords: existingOrder.destinationCoords,
-              spbuId: existingOrder.spbuId ?? "",
-              schedule: "",
-              status: "SCHEDULED"
-            });
-          }
-          open();
-        }}
-        className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-          existingOrder 
-            ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-            : "bg-primary text-primary-foreground hover:bg-primary/90"
-        } ${loading ? "cursor-not-allowed opacity-70" : ""}`}
-        disabled={loading}
-      >
-        <ButtonIcon className="h-4 w-4" /> {buttonTitle}
-      </button>
+      {customTrigger ? (
+        <div onClick={handleOpen} className="contents cursor-pointer">
+          {customTrigger}
+        </div>
+      ) : (
+        <button
+          onClick={handleOpen}
+          className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition ${existingOrder
+              ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+              : "bg-primary text-primary-foreground hover:bg-primary/90"
+            } ${loading ? "cursor-not-allowed opacity-70" : ""}`}
+          disabled={loading}
+        >
+          <ButtonIcon className="h-4 w-4" /> {buttonTitle}
+        </button>
+      )}
 
       <Modal isOpen={isOpen} onClose={close} title={modalTitle} size="xl">
         <form onSubmit={handleSubmit} className="space-y-6">

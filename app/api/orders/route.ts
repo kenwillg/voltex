@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import fs from "fs/promises";
 import path from "path";
 import { prisma } from "@/lib/prisma";
+import QRCode from "qrcode";
 
 function formatNotes(payload: any) {
   if (!payload?.destinationName && !payload?.destinationAddress && !payload?.destinationCoords) return null;
@@ -47,10 +48,10 @@ export async function GET() {
   const mapped = orders.map((order) => {
     const destination = order.spbu
       ? {
-          destinationName: order.spbu.name,
-          destinationAddress: order.spbu.address,
-          destinationCoords: order.spbu.coords,
-        }
+        destinationName: order.spbu.name,
+        destinationAddress: order.spbu.address,
+        destinationCoords: order.spbu.coords,
+      }
       : parseNotes(order.notes ?? undefined);
     const status = order.loadSessions[0]?.status || "SCHEDULED";
     return {
@@ -122,13 +123,21 @@ export async function POST(req: Request) {
   });
 
   let spaPdfPath: string | null = null;
+  let qrCodePath: string | null = null;
+
   try {
     spaPdfPath = await generateAndUploadSpaPdf(order, payload);
+    qrCodePath = await generateAndUploadQrCode(order);
+
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { spaPdfPath, qrCodePath } as any,
+    });
   } catch (error) {
-    console.error("Failed to generate/upload SPA PDF", error);
+    console.error("Failed to generate/upload documents", error);
   }
 
-  return NextResponse.json({ ...order, spaPdfPath }, { status: 201 });
+  return NextResponse.json({ ...order, spaPdfPath, qrCodePath }, { status: 201 });
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -154,6 +163,38 @@ async function generateAndUploadSpaPdf(order: any, payload: any) {
     });
 
   if (error) {
+    throw error;
+  }
+
+  return path;
+}
+
+async function generateAndUploadQrCode(order: any) {
+  if (!supabaseUrl || !supabaseKey) return null;
+
+  // Format: VOLTEX|SPA|<SPA_NUMBER>|<DRIVER_ID>
+  const qrContent = `VOLTEX|SPA|${order.spNumber}|${order.driverId}`;
+
+  // Generate QR as Buffer
+  const qrBuffer = await QRCode.toBuffer(qrContent, {
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    width: 512,
+  });
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const fileName = `QR-${order.spNumber}.png`;
+  const path = `qr-spa/${fileName}`;
+
+  const { error } = await supabase.storage
+    .from("documents")
+    .upload(path, qrBuffer, {
+      contentType: "image/png",
+      upsert: true,
+    });
+
+  if (error) {
+    console.error("Failed to upload QR", error);
     throw error;
   }
 
@@ -332,6 +373,7 @@ async function buildSpaPdf(order: any, payload: any) {
   drawFieldRow("Waktu", formatTimeDots(scheduledDate));
   drawFieldRow("Tempat Pengambilan", `${supplyPoint}\n${supplyAddress}`);
   drawFieldRow("Quantity", plannedLiters ? `${Intl.NumberFormat("id-ID").format(plannedLiters)} Liter` : "-");
+  drawFieldRow("Jenis BBM", payload.product || order.product || "-");
   drawFieldRow("PO Text", payload.poText || "-");
   cursorY -= 8;
 
@@ -352,7 +394,7 @@ async function buildSpaPdf(order: any, payload: any) {
   drawFieldRow("Status", "Disetujui");
   drawFieldRow(
     "Catatan",
-    "SPA ini dicetak melalui sistem SPA Online - Domestic Gas PT Pertamina (Persero).",
+    "SPA ini dicetak melalui sistem SPA Online - Domestic Gas PT Voltex Logistics.",
   );
   drawFieldRow(
     "Dokumen",
