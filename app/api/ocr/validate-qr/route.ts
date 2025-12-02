@@ -144,7 +144,6 @@ export async function GET(req: NextRequest) {
         driver: true,
         vehicle: true,
         loadSessions: {
-          where: { status: { in: ["SCHEDULED", "GATE_IN", "LOADING"] } },
           orderBy: { createdAt: "desc" },
           take: 1,
         },
@@ -155,6 +154,9 @@ export async function GET(req: NextRequest) {
     if (order) {
       console.log("[qr] order.driverId:", order.driverId, "qrDriverId:", qrDriverId);
       console.log("[qr] loadSessions count:", order.loadSessions.length);
+      if (order.loadSessions[0]) {
+        console.log("[qr] current session status:", order.loadSessions[0].status);
+      }
     }
 
     if (!order) {
@@ -271,15 +273,32 @@ export async function GET(req: NextRequest) {
       }
     } else if (direction === "exit") {
       // --- EXIT LOGIC ---
-      if (session && (session.status === "GATE_IN" || session.status === "LOADING")) {
-        // Allow exit
-        session = await prisma.loadSession.update({
-          where: { id: session.id },
-          data: { status: "GATE_OUT", gateOutAt: now },
-        });
-        transition = "GATE_OUT";
-      } else if (session && session.status === "GATE_OUT") {
+      if (!session) {
+        // No session found
+        console.log("[qr] EXIT blocked - no session found");
+        return NextResponse.json(
+          {
+            valid: false,
+            driver: {
+              id: driver.id,
+              name: driver.name,
+              driverCode: driver.driverCode,
+              vehicle: {
+                id: order.vehicle?.id ?? null,
+                licensePlate: order.vehicle?.licensePlate ?? "",
+              },
+            },
+            loadSession: null,
+            reason: "No Session",
+            message: "Tidak ada sesi loading yang ditemukan untuk order ini.",
+          },
+          { status: 200 },
+        );
+      }
+
+      if (session.status === "GATE_OUT") {
         // Already out
+        console.log("[qr] EXIT - already GATE_OUT");
         return NextResponse.json(
           {
             valid: true,
@@ -298,15 +317,55 @@ export async function GET(req: NextRequest) {
           },
           { status: 200 },
         );
-      } else {
-        // Not ready for exit (e.g. SCHEDULED or no session)
+      }
+
+      if (session.status === "GATE_IN" || session.status === "LOADING") {
+        // Allow exit - this is the valid flow
+        console.log("[qr] EXIT approved - status:", session.status);
+        session = await prisma.loadSession.update({
+          where: { id: session.id },
+          data: { status: "GATE_OUT", gateOutAt: now },
+        });
+        transition = "GATE_OUT";
+      } else if (session.status === "SCHEDULED") {
+        // Not yet entered
+        console.log("[qr] EXIT blocked - still SCHEDULED");
         return NextResponse.json(
           {
             valid: false,
-            driver: null,
+            driver: {
+              id: driver.id,
+              name: driver.name,
+              driverCode: driver.driverCode,
+              vehicle: {
+                id: order.vehicle?.id ?? null,
+                licensePlate: order.vehicle?.licensePlate ?? "",
+              },
+            },
             loadSession: session,
             reason: "Invalid Flow",
-            message: "Kendaraan belum melakukan Gate In.",
+            message: "Kendaraan belum melakukan Gate In. Silakan scan di Gate Entry terlebih dahulu.",
+          },
+          { status: 200 },
+        );
+      } else {
+        // Unknown status
+        console.log("[qr] EXIT blocked - unknown status:", session.status);
+        return NextResponse.json(
+          {
+            valid: false,
+            driver: {
+              id: driver.id,
+              name: driver.name,
+              driverCode: driver.driverCode,
+              vehicle: {
+                id: order.vehicle?.id ?? null,
+                licensePlate: order.vehicle?.licensePlate ?? "",
+              },
+            },
+            loadSession: session,
+            reason: "Invalid Status",
+            message: `Status tidak valid untuk exit: ${session.status}`,
           },
           { status: 200 },
         );

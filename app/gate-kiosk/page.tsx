@@ -25,7 +25,7 @@ interface QrStatus {
   timestamp?: string;
 }
 
-type GateStep = "SCHEDULED" | "GATE_IN" | "LOADING" | "GATE_OUT";
+type GateStep = "GATE_IN" | "LOADING" | "GATE_OUT";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_OCR_SOCKET_URL ?? "http://localhost:8000";
 const USE_LOCAL_WEBCAM = process.env.NEXT_PUBLIC_GATE_KIOSK_LOCAL_CAM === "true"; // default off
@@ -44,26 +44,9 @@ export default function GateKioskPage() {
   const [videoFrame, setVideoFrame] = useState<string | null>(null);
   const [plateStatus, setPlateStatus] = useState<PlateStatus | null>(null);
   const [qrStatus, setQrStatus] = useState<QrStatus | null>(null);
-  const [currentStep, setCurrentStep] = useState<GateStep>("SCHEDULED");
-  const currentStepRef = useRef<GateStep>("SCHEDULED");
+  const [currentStep, setCurrentStep] = useState<GateStep>("GATE_IN");
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string>("Sedang mengambil data...");
-  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    currentStepRef.current = currentStep;
-  }, [currentStep]);
-
-  const scheduleAutoClear = () => {
-    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
-    clearTimerRef.current = setTimeout(() => {
-      setPlateStatus(null);
-      setQrStatus(null);
-      setCurrentStep("SCHEDULED");
-      setStatusMessage("Menunggu kendaraan berikutnya.");
-    }, 20000);
-  };
 
   // connect to OCR stream (same as dashboard gate)
   useEffect(() => {
@@ -79,7 +62,7 @@ export default function GateKioskPage() {
       // Start streaming and set to QR mode
       socket.emit("start_stream");
       socket.emit("set_mode", { mode: "qr" });
-      // Tell Python script this is an ENTRY gate
+      // Force "entry" direction to avoid conflict with Gate Out
       socket.emit("set_gate_direction", { direction: "entry" });
     });
 
@@ -120,15 +103,7 @@ export default function GateKioskPage() {
         timestamp: payload?.timestamp,
       });
       setQrStatus(null);
-      const previous = currentStepRef.current;
-      if (previous === "SCHEDULED") {
-        setCurrentStep("GATE_IN");
-        setStatusMessage("Silakan masuk, data diverifikasi di gate.");
-        scheduleAutoClear();
-      } else {
-        setCurrentStep("LOADING");
-        setStatusMessage("Data ditemukan, lanjut scan QR.");
-      }
+      setCurrentStep("LOADING");
       setDetectionMode("qr");
       // optional prompt to server if supported
       socket.emit("request_mode_change", { mode: "qr" });
@@ -144,7 +119,6 @@ export default function GateKioskPage() {
       });
       setQrStatus(null);
       setCurrentStep("GATE_IN");
-      setStatusMessage(payload?.message ?? "Plat tidak ditemukan, mohon ulangi.");
       setDetectionMode("qr");
     });
 
@@ -154,17 +128,12 @@ export default function GateKioskPage() {
         qr: payload?.qr,
         driverName: payload?.driver?.name,
         licensePlate: payload?.driver?.vehicle?.licensePlate,
-        message: payload?.message ?? "QR terverifikasi, silakan masuk.",
+        message: payload?.message ?? "QR terverifikasi, silakan lanjut Gate Out.",
         timestamp: payload?.timestamp,
       });
-
-      // STRICTLY GATE IN LOGIC
-      setCurrentStep("GATE_IN");
-      setStatusMessage("Silakan masuk. Barrier dibuka.");
-
+      setCurrentStep("GATE_OUT");
       setDetectionMode("qr");
       socket.emit("request_mode_change", { mode: "qr" });
-      scheduleAutoClear();
     });
 
     socket.on("qr_invalid", (payload: any) => {
@@ -177,14 +146,11 @@ export default function GateKioskPage() {
         timestamp: payload?.timestamp,
       });
       setCurrentStep("LOADING");
-      setStatusMessage(payload?.message ?? "QR tidak valid, coba ulang.");
       setDetectionMode("qr");
       socket.emit("request_mode_change", { mode: "qr" });
-      scheduleAutoClear();
     });
 
     return () => {
-      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
       socket.disconnect();
       socketRef.current = null;
     };
@@ -240,7 +206,7 @@ export default function GateKioskPage() {
       <div className="mx-auto flex max-w-6xl flex-col gap-8 px-5 py-8">
         <header className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-500">Gate In</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-500">Gate Kiosk</p>
             <h1 className="text-3xl font-semibold">OCR Stream & Status</h1>
           </div>
           <div className="rounded-full border border-white/10 px-3 py-1 text-xs text-neutral-400">
@@ -329,14 +295,13 @@ export default function GateKioskPage() {
                 <p>Plat: {licensePlate}</p>
                 <p>Waktu: {qrTime}</p>
                 <p className="text-neutral-300">{qrMessage}</p>
-                <p className="text-xs text-primary">{statusMessage}</p>
                 {qrStatus?.reason && <p className="text-amber-400 text-xs">Alasan: {qrStatus.reason}</p>}
               </div>
 
               <div className="space-y-2 text-sm">
                 <p className="text-xs uppercase tracking-[0.35em] text-neutral-400">Status Gate</p>
                 <div className="flex flex-wrap gap-2">
-                  {(["SCHEDULED", "GATE_IN", "LOADING", "GATE_OUT"] as GateStep[]).map((step) => {
+                  {(["GATE_IN", "LOADING", "GATE_OUT"] as GateStep[]).map((step) => {
                     const active = step === currentStep;
                     return (
                       <span

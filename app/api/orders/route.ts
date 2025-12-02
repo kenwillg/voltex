@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createClient } from "@supabase/supabase-js";
+import QRCode from "qrcode";
 import fs from "fs/promises";
 import path from "path";
 import { prisma } from "@/lib/prisma";
-import QRCode from "qrcode";
 
 function formatNotes(payload: any) {
   if (!payload?.destinationName && !payload?.destinationAddress && !payload?.destinationCoords) return null;
@@ -124,9 +124,12 @@ export async function POST(req: Request) {
 
   let spaPdfPath: string | null = null;
   let qrCodePath: string | null = null;
+  let pdfBytes: Uint8Array | null = null;
 
   try {
-    spaPdfPath = await generateAndUploadSpaPdf(order, payload);
+    const pdfResult = await generateAndUploadSpaPdf(order, payload);
+    spaPdfPath = pdfResult.path;
+    pdfBytes = pdfResult.pdfBytes;
     qrCodePath = await generateAndUploadQrCode(order);
 
     await prisma.order.update({
@@ -137,11 +140,19 @@ export async function POST(req: Request) {
     console.error("Failed to generate/upload documents", error);
   }
 
+  // Fire-and-forget Brevo email (best effort)
+  dispatchOrderEmail(order, spaPdfPath, pdfBytes, qrCodePath).catch((err) =>
+    console.error("Brevo send failed:", err),
+  );
+
   return NextResponse.json({ ...order, spaPdfPath, qrCodePath }, { status: 201 });
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const brevoApiKey = process.env.BREVO_API_KEY;
+const brevoSenderEmail = process.env.BREVO_SENDER_EMAIL;
+const brevoSenderName = process.env.BREVO_SENDER_NAME || "Voltex Dispatch";
 
 async function generateAndUploadSpaPdf(order: any, payload: any) {
   if (!supabaseUrl || !supabaseKey) {
@@ -166,7 +177,7 @@ async function generateAndUploadSpaPdf(order: any, payload: any) {
     throw error;
   }
 
-  return path;
+  return { path, pdfBytes };
 }
 
 async function generateAndUploadQrCode(order: any) {
@@ -199,6 +210,255 @@ async function generateAndUploadQrCode(order: any) {
   }
 
   return path;
+}
+
+async function dispatchOrderEmail(
+  order: any,
+  spaPdfPath: string | null,
+  pdfBytes: Uint8Array | null,
+  qrCodePath: string | null,
+) {
+  if (!brevoApiKey || !brevoSenderEmail) {
+    console.warn("[Brevo] Not configured; skip email dispatch.");
+    return;
+  }
+
+  const recipientEmail = order?.driver?.email || order?.driverEmail || null;
+  if (!recipientEmail) {
+    console.warn(`[Brevo] No driver email found for ${order.spNumber}; skip email dispatch.`);
+    return;
+  }
+
+  const qrPayload = `VOLTEX|SPA|${order.spNumber}|${order.driverId}`;
+
+  // Generate QR code as Buffer for attachment
+  const qrBuffer = await QRCode.toBuffer(qrPayload, {
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    width: 512,
+  });
+
+  const attachments: Array<{ content: string; name: string }> = [];
+
+  // Attach PDF if available
+  if (pdfBytes) {
+    attachments.push({
+      content: Buffer.from(pdfBytes).toString("base64"),
+      name: `SPA-${order.spNumber}.pdf`,
+    });
+  }
+
+  // Attach QR code
+  if (qrBuffer) {
+    attachments.push({
+      content: qrBuffer.toString("base64"),
+      name: `QR-${order.spNumber}.png`,
+    });
+  }
+
+  const schedule = order.scheduledAt ? new Date(order.scheduledAt) : new Date();
+  const scheduleFormatted = schedule.toLocaleString("id-ID", {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const spaLink =
+    supabaseUrl && spaPdfPath
+      ? `${supabaseUrl}/storage/v1/object/public/documents/${spaPdfPath}`
+      : null;
+  const qrLink =
+    supabaseUrl && qrCodePath
+      ? `${supabaseUrl}/storage/v1/object/public/documents/${qrCodePath}`
+      : null;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Surat Perintah ${order.spNumber}</title>
+      <style>
+        body { margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #334155; -webkit-font-smoothing: antialiased; }
+        .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; margin-top: 40px; margin-bottom: 40px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .header { background-color: #1e293b; padding: 32px; text-align: center; }
+        .header h1 { color: #ffffff; margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
+        .header p { color: #94a3b8; margin: 8px 0 0; font-size: 13px; }
+        .content { padding: 40px 32px; }
+        .section { margin-bottom: 32px; }
+        .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; font-weight: 700; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid #f8fafc; padding-bottom: 12px; }
+        .row:last-child { border-bottom: none; }
+        .label { font-size: 13px; color: #64748b; }
+        .value { font-size: 13px; color: #0f172a; font-weight: 600; text-align: right; }
+        .alert { background-color: #f8fafc; border-left: 3px solid #3b82f6; padding: 16px; border-radius: 4px; font-size: 13px; line-height: 1.6; color: #475569; }
+        .btn-container { margin-top: 8px; }
+        .btn { display: inline-block; background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 500; margin-right: 12px; margin-bottom: 8px; }
+        .btn:hover { background-color: #1e293b; }
+        .footer { background-color: #f8fafc; padding: 24px; text-align: center; border-top: 1px solid #e2e8f0; }
+        .footer p { font-size: 11px; color: #94a3b8; margin: 4px 0; line-height: 1.5; }
+        .footer strong { color: #64748b; font-weight: 600; }
+        @media only screen and (max-width: 600px) {
+          .container { width: 100% !important; margin-top: 0 !important; border-radius: 0 !important; }
+          .content { padding: 24px 20px; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <!-- Header -->
+        <div class="header">
+          <h1>Voltex Dispatch</h1>
+          <p>Surat Perintah Angkut BBM</p>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+          <div class="section">
+            <p style="margin: 0; font-size: 15px; color: #0f172a; line-height: 1.6;">
+              Yth. <strong>${order.driver?.name ?? "Driver"}</strong>,
+            </p>
+            <p style="margin: 12px 0 0; font-size: 14px; line-height: 1.6; color: #475569;">
+              Berikut adalah rincian penugasan pengangkutan BBM Anda. Mohon pelajari detail di bawah ini dengan seksama.
+            </p>
+          </div>
+
+          <!-- Details -->
+          <div class="section">
+            <div class="section-title">Detail Penugasan</div>
+            
+            <div class="row">
+              <span class="label">Nomor SPA</span>
+              <span class="value"> ${order.spNumber}</span>
+            </div>
+            <div class="row">
+              <span class="label">Jadwal Muat</span>
+              <span class="value"> ${scheduleFormatted}</span>
+            </div>
+            <div class="row">
+              <span class="label">Kendaraan</span>
+              <span class="value"> ${order.vehicle?.licensePlate ?? "-"}</span>
+            </div>
+            <div class="row">
+              <span class="label">Produk</span>
+              <span class="value"> ${order.product}</span>
+            </div>
+            <div class="row">
+              <span class="label">Volume Rencana</span>
+              <span class="value"> ${Number(order.plannedLiters || 0).toLocaleString("id-ID")} Liter</span>
+            </div>
+          </div>
+
+          <!-- Instructions -->
+          <div class="section">
+            <div class="section-title">Instruksi & Catatan</div>
+            <div class="alert">
+              <ul style="margin: 0; padding-left: 20px; list-style-type: disc;">
+                <li style="margin-bottom: 4px;">Pastikan kelengkapan surat jalan dan kondisi kendaraan sebelum berangkat.</li>
+                <li style="margin-bottom: 4px;">Tunjukkan QR Code kepada petugas saat memasuki area terminal/depot.</li>
+                <li>Patuhi seluruh prosedur keselamatan (K3) selama proses loading dan unloading.</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Attachments -->
+          <div class="section" style="margin-bottom: 0;">
+            <div class="section-title">Dokumen Lampiran</div>
+            <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b;">
+              Silakan unduh dokumen digital berikut untuk keperluan administrasi:
+            </p>
+            <div class="btn-container">
+              ${spaLink ? `<a href="${spaLink}" class="btn" target="_blank">Unduh SPA (PDF)</a>` : ''}
+              ${qrLink ? `<a href="${qrLink}" class="btn" target="_blank">Unduh QR Code</a>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+          <p><strong>PT VOLTEX LOGISTICS</strong></p>
+          <p>Fuel Distribution Management System</p>
+          <p style="margin-top: 12px;">Email ini dibuat secara otomatis oleh sistem. Mohon tidak membalas email ini.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const payload = {
+    sender: { email: brevoSenderEmail, name: brevoSenderName },
+    to: [{ email: recipientEmail, name: order?.driver?.name || "Driver" }],
+    subject: `Surat Perintah ${order.spNumber}`,
+    htmlContent,
+    textContent: `
+VOLTEX Dispatch System - Surat Perintah Angkut BBM
+
+Yth. ${order.driver?.name ?? "Driver"},
+
+Anda diperintahkan untuk melakukan pengangkutan BBM sesuai dengan detail berikut:
+
+DETAIL SURAT PERINTAH
+========================
+SP Number    : ${order.spNumber}
+Driver       : ${order.driver?.name ?? "-"} (${order.driver?.driverCode ?? "-"})
+Kendaraan    : ${order.vehicle?.licensePlate ?? "-"}
+Produk BBM   : ${order.product}
+Volume       : ${Number(order.plannedLiters || 0).toLocaleString("id-ID")} Liter
+Jadwal       : ${scheduleFormatted}
+
+INSTRUKSI PENTING
+========================
+1. Pastikan kendaraan dalam kondisi baik sebelum berangkat
+2. Tunjukkan QR Code yang terlampir saat masuk dan keluar gate
+3. Ikuti prosedur loading sesuai SOP yang berlaku
+4. Hubungi dispatcher jika terdapat kendala atau perubahan
+
+LAMPIRAN DOKUMEN
+========================
+${spaLink ? `SPA PDF: ${spaLink}\n` : ""}${qrLink ? `QR Code: ${qrLink}\n` : ""}
+Dokumen Surat Perintah dan QR Code telah dilampirkan pada email ini.
+
+Selamat bertugas dan hati-hati di jalan!
+
+---
+PT VOLTEX LOGISTICS
+Automation Fuel Distribution Management System
+Email ini dikirim secara otomatis oleh sistem.
+      `.trim(),
+    attachment: attachments, // Brevo API uses "attachment" not "attachments"
+  };
+
+  console.log(`[Brevo] Sending email to ${recipientEmail} for ${order.spNumber}...`);
+
+  // Debug: Check API Key
+  if (brevoApiKey) {
+    const maskedKey = `${brevoApiKey.substring(0, 4)}...${brevoApiKey.substring(brevoApiKey.length - 4)}`;
+    console.log(`[Brevo] Using Key: ${maskedKey} (Length: ${brevoApiKey.length})`);
+  } else {
+    console.error("[Brevo] API Key is missing or empty!");
+  }
+
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": brevoApiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`[Brevo] Failed to send email: ${res.status} ${errText}`);
+    throw new Error(`Brevo API error ${res.status}: ${errText}`);
+  }
+
+  const result = await res.json();
+  console.log(`[Brevo] Email sent successfully. Message ID: ${result.messageId || 'N/A'}`);
 }
 
 function formatDateId(date: Date) {

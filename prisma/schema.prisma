@@ -9,22 +9,22 @@ datasource db {
 }
 
 model Bay {
-  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name         String        @unique
-  isActive     Boolean       @default(true) @map("is_active")
-  family       String?
-  description  String?
-  product      String?
-  capacityLiters Int?        @map("capacity_liters")
-  loadSessions LoadSession[]
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String        @unique
+  isActive       Boolean       @default(true) @map("is_active")
+  capacityLiters Int?          @map("capacity_liters")
+  description    String?
+  family         String?
+  product        String?
+  loadSessions   LoadSession[]
 
   @@map("bays")
 }
 
 model TerminalSetting {
-  id            String   @id @default("default")
+  id             String   @id @default("default")
   capacityLiters Int?
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("terminal_settings")
 }
@@ -44,11 +44,11 @@ model Driver {
   driverCode String?  @unique @map("driver_code")
   name       String
   phone      String?
-  email      String?
   licenseId  String?  @unique @map("license_id")
   isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  email      String?
   orders     Order[]
 
   @@map("drivers")
@@ -70,15 +70,15 @@ model Spbu {
 }
 
 model Vehicle {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  licensePlate String   @unique @map("license_plate")
-  vehicleType  String?  @map("vehicle_type")
-  capacityLiters Int?    @map("capacity_liters")
-  ownerName    String?  @map("owner_name")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-  orders       Order[]
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  licensePlate   String   @unique @map("license_plate")
+  vehicleType    String?  @map("vehicle_type")
+  ownerName      String?  @map("owner_name")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  capacityLiters Int?     @map("capacity_liters")
+  orders         Order[]
 
   @@index([licensePlate], map: "idx_vehicles_plate")
   @@map("vehicles")
@@ -97,10 +97,10 @@ model Order {
   notes         String?
   qrCodeValue   String?       @unique @map("qr_code_value")
   qrExpiresAt   DateTime?     @map("qr_expires_at") @db.Timestamptz(6)
-  spaPdfPath    String?       @map("spa_pdf_path")
-  qrCodePath    String?       @map("qr_code_path")
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  qrCodePath    String?       @map("qr_code_path")
+  spaPdfPath    String?       @map("spa_pdf_path")
   loadSessions  LoadSession[]
   driver        Driver        @relation(fields: [driverId], references: [id], onDelete: NoAction)
   spbu          Spbu          @relation(fields: [spbuId], references: [id], onDelete: NoAction)

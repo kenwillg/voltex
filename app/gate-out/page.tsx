@@ -155,7 +155,7 @@ export default function GateOutPage() {
             setStatusMessage("Gate Out berhasil. Barrier dibuka.");
 
             setDetectionMode("qr");
-            socket.emit("request_mode_change", { mode: "qr" });
+            socket.emit("request_mode_change", { gate_mode: "exit", detection: "qr" });
             scheduleAutoClear();
         });
 
@@ -171,7 +171,7 @@ export default function GateOutPage() {
             // Don't change step, just show error
             setStatusMessage(payload?.message ?? "QR tidak valid, coba ulang.");
             setDetectionMode("qr");
-            socket.emit("request_mode_change", { mode: "qr" });
+            socket.emit("request_mode_change", { gate_mode: "exit", detection: "qr" });
             scheduleAutoClear();
         });
 
