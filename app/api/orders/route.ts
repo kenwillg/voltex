@@ -115,7 +115,7 @@ export async function POST(req: Request) {
   }
 
   // Always ensure an initial load session is created
-  await prisma.loadSession.create({
+  const loadSession = await prisma.loadSession.create({
     data: {
       orderId: order.id,
       status: "SCHEDULED",
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
     const pdfResult = await generateAndUploadSpaPdf(order, payload);
     spaPdfPath = pdfResult.path;
     pdfBytes = pdfResult.pdfBytes;
-    qrCodePath = await generateAndUploadQrCode(order);
+    qrCodePath = await generateAndUploadQrCode(order, loadSession.id);
 
     await prisma.order.update({
       where: { id: order.id },
@@ -180,11 +180,11 @@ async function generateAndUploadSpaPdf(order: any, payload: any) {
   return { path, pdfBytes };
 }
 
-async function generateAndUploadQrCode(order: any) {
+async function generateAndUploadQrCode(order: any, sessionId: string) {
   if (!supabaseUrl || !supabaseKey) return null;
 
-  // Format: VOLTEX|SPA|<SPA_NUMBER>|<DRIVER_ID>
-  const qrContent = `VOLTEX|SPA|${order.spNumber}|${order.driverId}`;
+  // Format: VOLTEX|SPA|<SPA_NUMBER>|<SESSION_ID>
+  const qrContent = `VOLTEX|SPA|${order.spNumber}|${sessionId}`;
 
   // Generate QR as Buffer
   const qrBuffer = await QRCode.toBuffer(qrContent, {
@@ -229,7 +229,18 @@ async function dispatchOrderEmail(
     return;
   }
 
-  const qrPayload = `VOLTEX|SPA|${order.spNumber}|${order.driverId}`;
+  // Get the load session for QR generation
+  const loadSession = await prisma.loadSession.findFirst({
+    where: { orderId: order.id },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!loadSession) {
+    console.warn(`[Brevo] No load session found for ${order.spNumber}; skipping QR in email.`);
+    return;
+  }
+
+  const qrPayload = `VOLTEX|SPA|${order.spNumber}|${loadSession.id}`;
 
   // Generate QR code as Buffer for attachment
   const qrBuffer = await QRCode.toBuffer(qrPayload, {

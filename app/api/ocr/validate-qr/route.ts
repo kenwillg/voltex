@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 	// [Paste your existing duplicate check logic here if you want]
 
 	try {
-		// Expected shape: VOLTEX|SPA|<spaNumber>|<driverCode>
+		// Expected shape: VOLTEX|SPA|<spaNumber>|<sessionId>
 		const parts = qr.split("|");
 
 		// Safety check for malformed QRs
@@ -52,25 +52,40 @@ export async function GET(req: NextRequest) {
 			return NextResponse.json({ valid: false, reason: "Malformed QR payload" }, { status: 200 });
 		}
 
-		const [, , spaNumber, qrDriverCode] = parts; // Renamed qrDriverId to qrDriverCode for clarity
-		console.log(`[qr] Processing: SPA=${spaNumber}, DriverCode=${qrDriverCode}`);
+		const [, , spaNumber, qrSessionId] = parts;
+		console.log(`[qr] Processing: SPA=${spaNumber}, SessionId=${qrSessionId}`);
 
-		// 1) Locate the Order
-		const order = await prisma.order.findUnique({
-			where: { spNumber: spaNumber },
+		// 1) Locate the Load Session by ID
+		const session = await prisma.loadSession.findUnique({
+			where: { id: qrSessionId },
 			include: {
-				driver: true,
-				vehicle: true,
-				loadSessions: {
-					orderBy: { createdAt: "desc" },
-					take: 1,
+				order: {
+					include: {
+						driver: true,
+						vehicle: true,
+					},
 				},
 			},
 		});
 
-		if (!order) {
+		if (!session) {
 			return NextResponse.json(
-				{ valid: false, reason: `SPA ${spaNumber} not found`, message: "Order tidak ditemukan" },
+				{ valid: false, reason: `Session ${qrSessionId} not found`, message: "Sesi tidak ditemukan" },
+				{ status: 200 }
+			);
+		}
+
+		const order = session.order;
+
+		// 2) Validate that the session's order matches the SPA number from QR
+		if (order.spNumber !== spaNumber) {
+			console.log(`[qr] MISMATCH: QR SPA=${spaNumber}, Session Order SPA=${order.spNumber}`);
+			return NextResponse.json(
+				{
+					valid: false,
+					reason: `SPA mismatch`,
+					message: `QR SPA (${spaNumber}) tidak sesuai dengan Sesi (${order.spNumber})`,
+				},
 				{ status: 200 }
 			);
 		}
@@ -82,55 +97,35 @@ export async function GET(req: NextRequest) {
 			);
 		}
 
-		// ---------------------------------------------------------
-		// 🔴 LOGIC FIX (As applied previously)
-		// ---------------------------------------------------------
-		// Compare order.driver.driverCode vs the QR code
-		if (order.driver.driverCode !== qrDriverCode) {
-			console.log(`[qr] MISMATCH: Order expects ${order.driver.driverCode}, QR scanned ${qrDriverCode}`);
-			return NextResponse.json(
-				{
-					valid: false,
-					reason: `Driver mismatch`,
-					message: `QR (${qrDriverCode}) tidak sesuai dengan Order (${order.driver.driverCode})`,
-				},
-				{ status: 200 }
-			);
-		}
-		// ---------------------------------------------------------
-
 		const driver = order.driver;
 
 		// 3) Handle Session State (Gate In / Gate Out)
 		const now = new Date();
-		let session = order.loadSessions[0] ?? null;
+		let updatedSession = session;
 		let transition: "GATE_IN" | "GATE_OUT" | null = null;
 
 		if (direction === "entry") {
-			if (!session) {
-				// Create new session
-				session = await prisma.loadSession.create({
-					data: { orderId: order.id, status: "GATE_IN", gateInAt: now },
-				});
-				transition = "GATE_IN";
-			} else if (session.status === "SCHEDULED") {
-				// Update existing
-				session = await prisma.loadSession.update({
+			if (session.status === "SCHEDULED") {
+				// Update existing session to GATE_IN
+				updatedSession = await prisma.loadSession.update({
 					where: { id: session.id },
 					data: { status: "GATE_IN", gateInAt: now },
 				});
 				transition = "GATE_IN";
-			} else {
-				// Already inside
+			} else if (session.status === "GATE_IN" || session.status === "LOADING" || session.status === "GATE_OUT") {
+				// Already inside or beyond
 				return NextResponse.json({
 					valid: true,
 					driver: { name: driver.name, driverCode: driver.driverCode },
 					message: `Kendaraan sudah di dalam (Status: ${session.status})`
 				}, { status: 200 });
+			} else {
+				return NextResponse.json({ 
+					valid: false, 
+					message: `Status sesi tidak valid untuk Gate In: ${session.status}` 
+				}, { status: 200 });
 			}
 		} else if (direction === "exit") {
-			if (!session) return NextResponse.json({ valid: false, message: "Sesi tidak ditemukan" }, { status: 200 });
-
 			if (session.status === "GATE_OUT") {
 				return NextResponse.json({
 					valid: true,
@@ -140,13 +135,16 @@ export async function GET(req: NextRequest) {
 			}
 
 			if (session.status === "GATE_IN" || session.status === "LOADING") {
-				session = await prisma.loadSession.update({
+				updatedSession = await prisma.loadSession.update({
 					where: { id: session.id },
 					data: { status: "GATE_OUT", gateOutAt: now },
 				});
 				transition = "GATE_OUT";
 			} else {
-				return NextResponse.json({ valid: false, message: "Flow invalid (belum gate in)" }, { status: 200 });
+				return NextResponse.json({ 
+					valid: false, 
+					message: `Flow invalid: status sesi ${session.status} tidak memungkinkan Gate Out` 
+				}, { status: 200 });
 			}
 		}
 

@@ -15,7 +15,13 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
 
   const order = await prisma.order.findUnique({
     where: { id },
-    include: { driver: true },
+    include: { 
+      driver: true,
+      loadSessions: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
   });
 
   if (!order) {
@@ -32,8 +38,17 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
     );
   }
 
-  // Format: VOLTEX|SPA|<SPA_NUMBER>|<DRIVER_ID>
-  const qr = `VOLTEX|SPA|${order.spNumber}|${order.driverId}`;
+  // Get the most recent load session
+  const loadSession = order.loadSessions[0];
+  if (!loadSession) {
+    return NextResponse.json(
+      { ok: false, qr: null, reason: "Order has no load session" },
+      { status: 400 },
+    );
+  }
+
+  // Format: VOLTEX|SPA|<SPA_NUMBER>|<SESSION_ID>
+  const qr = `VOLTEX|SPA|${order.spNumber}|${loadSession.id}`;
 
   return NextResponse.json(
     {
@@ -43,6 +58,7 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
         spNumber: order.spNumber,
         driverId: order.driverId,
         driverName: order.driver.name,
+        sessionId: loadSession.id,
       },
     },
     { status: 200 },
