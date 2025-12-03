@@ -115,8 +115,18 @@ export default function GateKioskPage() {
         let direction: "entry" | "exit";
         if (currentStatus === "SCHEDULED") {
           direction = "entry";
-        } else if (currentStatus === "GATE_IN" || currentStatus === "LOADING") {
+        } else if (currentStatus === "FINISHED") {
+          // Only allow exit if loading is finished
           direction = "exit";
+        } else if (currentStatus === "GATE_IN" || currentStatus === "LOADING") {
+          // Block exit if still loading or just entered
+          setQrStatus({
+            valid: false,
+            qr: qrValue,
+            message: `Pengisian belum selesai. Status: ${currentStatus}. Harap tunggu hingga pengisian selesai.`,
+            timestamp: new Date().toISOString(),
+          });
+          return;
         } else {
           setQrStatus({
             valid: false,

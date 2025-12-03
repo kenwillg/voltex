@@ -159,7 +159,7 @@ export async function GET(req: NextRequest) {
 					},
 				});
 				transition = "GATE_IN";
-			} else if (session.status === "GATE_IN" || session.status === "LOADING" || session.status === "LOADING_COMPLETED" || session.status === "GATE_OUT") {
+			} else if (session.status === "GATE_IN" || session.status === "LOADING" || session.status === "FINISHED" || session.status === "GATE_OUT") {
 				// Already inside or beyond
 				return NextResponse.json({
 					valid: true,
@@ -181,7 +181,8 @@ export async function GET(req: NextRequest) {
 				}, { status: 200 });
 			}
 
-			if (session.status === "GATE_IN" || session.status === "LOADING" || session.status === "LOADING_COMPLETED") {
+			// Only allow exit if status is FINISHED (loading must be completed)
+			if (session.status === "FINISHED") {
 				updatedSession = await prisma.loadSession.update({
 					where: { id: session.id },
 					data: { status: "GATE_OUT", gateOutAt: now },
@@ -195,10 +196,16 @@ export async function GET(req: NextRequest) {
 					},
 				});
 				transition = "GATE_OUT";
+			} else if (session.status === "LOADING" || session.status === "GATE_IN") {
+				// Block exit if still loading or just entered
+				return NextResponse.json({ 
+					valid: false, 
+					message: `Pengisian belum selesai. Status: ${session.status}. Harap tunggu hingga pengisian selesai sebelum keluar.` 
+				}, { status: 200 });
 			} else {
 				return NextResponse.json({ 
 					valid: false, 
-					message: `Flow invalid: status sesi ${session.status} tidak memungkinkan Gate Out` 
+					message: `Flow invalid: status sesi ${session.status} tidak memungkinkan Gate Out. Status harus FINISHED.` 
 				}, { status: 200 });
 			}
 		}
