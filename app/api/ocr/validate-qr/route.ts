@@ -49,28 +49,67 @@ export async function GET(req: NextRequest) {
 
 		// Safety check for malformed QRs
 		if (parts.length !== 4 || parts[0] !== "VOLTEX" || parts[1] !== "SPA") {
-			return NextResponse.json({ valid: false, reason: "Malformed QR payload" }, { status: 200 });
+			console.error(`[qr] Malformed QR: expected 4 parts, got ${parts.length}, parts=${JSON.stringify(parts)}`);
+			return NextResponse.json({ 
+				valid: false, 
+				reason: "Malformed QR payload", 
+				message: "Format QR tidak valid. Format yang benar: VOLTEX|SPA|<SPA_NUMBER>|<SESSION_ID>" 
+			}, { status: 200 });
 		}
 
 		const [, , spaNumber, qrSessionId] = parts;
 		console.log(`[qr] Processing: SPA=${spaNumber}, SessionId=${qrSessionId}`);
 
+		// Validate UUID format (session ID should be a UUID)
+		const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+		const isValidUuid = uuidRegex.test(qrSessionId);
+		
+		if (!isValidUuid) {
+			console.error(`[qr] Invalid session ID format: ${qrSessionId} (expected UUID)`);
+			return NextResponse.json({
+				valid: false,
+				reason: "Invalid session ID format",
+				message: `Format session ID tidak valid: "${qrSessionId}". QR code harus berformat: VOLTEX|SPA|<SPA_NUMBER>|<SESSION_UUID>. Pastikan menggunakan QR code yang benar dari sistem.`
+			}, { status: 200 });
+		}
+
 		// 1) Locate the Load Session by ID
-		const session = await prisma.loadSession.findUnique({
-			where: { id: qrSessionId },
-			include: {
-				order: {
-					include: {
-						driver: true,
-						vehicle: true,
+		let session;
+		try {
+			session = await prisma.loadSession.findUnique({
+				where: { id: qrSessionId },
+				include: {
+					order: {
+						include: {
+							driver: true,
+							vehicle: true,
+						},
 					},
 				},
-			},
-		});
+			});
+		} catch (dbError: any) {
+			console.error(`[qr] Database error when finding session:`, dbError);
+			console.error(`[qr] Error details:`, {
+				message: dbError.message,
+				code: dbError.code,
+				meta: dbError.meta
+			});
+			return NextResponse.json({
+				valid: false,
+				reason: "Database error",
+				message: `Error saat mencari sesi: ${dbError.message || "Unknown error"}`,
+				errorCode: dbError.code
+			}, { status: 500 });
+		}
 
 		if (!session) {
+			console.warn(`[qr] Session not found: ${qrSessionId} for SPA: ${spaNumber}`);
 			return NextResponse.json(
-				{ valid: false, reason: `Session ${qrSessionId} not found`, message: "Sesi tidak ditemukan" },
+				{ 
+					valid: false, 
+					reason: `Session ${qrSessionId} not found`, 
+					message: `Sesi tidak ditemukan untuk session ID: ${qrSessionId}. Pastikan QR code yang digunakan valid dan sesuai dengan order yang benar.` 
+				},
 				{ status: 200 }
 			);
 		}
@@ -182,8 +221,14 @@ export async function GET(req: NextRequest) {
 			{ status: 200 }
 		);
 
-	} catch (err) {
-		console.error("[qr] Error:", err);
-		return NextResponse.json({ valid: false, message: "Server Error" }, { status: 500 });
+	} catch (err: any) {
+		console.error("[qr] Unexpected error:", err);
+		console.error("[qr] Error stack:", err?.stack);
+		return NextResponse.json({ 
+			valid: false, 
+			message: "Server Error",
+			reason: err?.message || "Unknown error",
+			details: process.env.NODE_ENV === "development" ? err?.stack : undefined
+		}, { status: 500 });
 	}
 }

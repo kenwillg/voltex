@@ -19,6 +19,11 @@ async function sendPresetToBay(opts: {
   const url = `http://${ESP32_BAY_IP}/session`;
 
   try {
+    console.log(`[ESP32 BAY] Sending to ${url}:`, { sessionId: opts.sessionId, plannedLiters: opts.plannedLiters });
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -26,14 +31,27 @@ async function sendPresetToBay(opts: {
         sessionId: opts.sessionId,
         plannedLiters: opts.plannedLiters,
       }),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
     const text = await res.text().catch(() => "");
     console.log("[ESP32 BAY] POST /session =>", res.status, text);
     return { ok: res.ok, status: res.status, raw: text };
-  } catch (err) {
+  } catch (err: any) {
     console.error("[ESP32 BAY] Failed to send preset:", err);
-    return { ok: false, error: String(err) };
+    
+    // More detailed error information
+    let errorMsg = String(err);
+    if (err.name === "AbortError" || err.message?.includes("timeout")) {
+      errorMsg = "Timeout: ESP32 did not respond within 15 seconds. Check if ESP32 is online and accessible.";
+    } else if (err.message?.includes("ECONNREFUSED") || err.message?.includes("ENOTFOUND")) {
+      errorMsg = `Connection refused: Cannot reach ESP32 at ${url}. Check IP address and network connectivity.`;
+    } else if (err.message?.includes("ETIMEDOUT")) {
+      errorMsg = "Network timeout: ESP32 is not responding. Check network connection.";
+    }
+    
+    return { ok: false, error: errorMsg, errorType: err.name };
   }
 }
 
@@ -104,13 +122,11 @@ async function handlePreset(req: NextRequest) {
     );
   }
 
-  // 2) OPTIONAL: update status to LOADING (or QUEUED) when we preset
+  // 2) Update status to LOADING when we preset
   const updated = await prisma.loadSession.update({
     where: { id: session.id },
     data: {
-      status: session.status === LoadStatus.LOADING
-        ? session.status
-        : LoadStatus.LOADING,
+      status: LoadStatus.LOADING,
       loadingStartAt: session.loadingStartAt ?? new Date(),
       // bayId stays as-is; you assign bay elsewhere in your flow
     },

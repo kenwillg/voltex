@@ -12,6 +12,8 @@ interface QrStatus {
   message?: string;
   reason?: string;
   timestamp?: string;
+  direction?: "entry" | "exit";
+  sessionStatus?: string;
 }
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_OCR_SOCKET_URL ?? "http://localhost:8000";
@@ -46,8 +48,7 @@ export default function GateKioskPage() {
       // Start streaming and set to QR mode
       socket.emit("start_stream");
       socket.emit("set_mode", { mode: "qr" });
-      // Force "entry" direction to avoid conflict with Gate Out
-      socket.emit("set_gate_direction", { direction: "entry" });
+      // No fixed direction - will auto-detect based on session status
     });
 
     socket.on("disconnect", () => {
@@ -76,26 +77,126 @@ export default function GateKioskPage() {
       }
     });
 
-    socket.on("qr_valid", (payload: any) => {
-      setQrStatus({
-        valid: true,
-        qr: payload?.qr,
-        driverName: payload?.driver?.name,
-        licensePlate: payload?.driver?.vehicle?.licensePlate,
-        message: payload?.message ?? "QR terverifikasi, silakan masuk.",
-        timestamp: payload?.timestamp,
-      });
+    // Helper function to validate QR with auto-direction detection
+    const validateQrWithDirection = async (qrValue: string) => {
+      if (!qrValue) return;
+
+      try {
+        // Extract session ID from QR format: VOLTEX|SPA|<SPA_NUMBER>|<SESSION_ID>
+        const parts = qrValue.split("|");
+        if (parts.length !== 4 || parts[0] !== "VOLTEX" || parts[1] !== "SPA") {
+          setQrStatus({
+            valid: false,
+            qr: qrValue,
+            message: "Format QR tidak valid",
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
+        const sessionId = parts[3];
+        
+        // First, check session status to determine direction
+        const sessionRes = await fetch(`/api/load-sessions/${sessionId}`);
+        if (!sessionRes.ok) {
+          setQrStatus({
+            valid: false,
+            qr: qrValue,
+            message: "Sesi tidak ditemukan",
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
+        const sessionData = await sessionRes.json();
+        const currentStatus = sessionData.status;
+        
+        // Determine direction based on status
+        let direction: "entry" | "exit";
+        if (currentStatus === "SCHEDULED") {
+          direction = "entry";
+        } else if (currentStatus === "GATE_IN" || currentStatus === "LOADING") {
+          direction = "exit";
+        } else {
+          setQrStatus({
+            valid: false,
+            qr: qrValue,
+            message: `Status sesi tidak valid untuk gate: ${currentStatus}`,
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
+        // Now validate QR with the determined direction
+        const validateRes = await fetch(`/api/ocr/validate-qr?qr=${encodeURIComponent(qrValue)}&direction=${direction}`);
+        const validateData = await validateRes.json();
+
+        if (validateData.valid) {
+          setQrStatus({
+            valid: true,
+            qr: qrValue,
+            driverName: validateData.driver?.name,
+            licensePlate: validateData.driver?.vehicle?.licensePlate,
+            message: validateData.message ?? (direction === "entry" ? "Silakan masuk" : "Silakan keluar"),
+            timestamp: new Date().toISOString(),
+            direction,
+            sessionStatus: currentStatus,
+          });
+        } else {
+          setQrStatus({
+            valid: false,
+            qr: qrValue,
+            reason: validateData.reason,
+            message: validateData.message ?? "QR tidak valid",
+            timestamp: new Date().toISOString(),
+            direction,
+            sessionStatus: currentStatus,
+          });
+        }
+      } catch (error: any) {
+        console.error("Error validating QR:", error);
+        setQrStatus({
+          valid: false,
+          qr: qrValue,
+          message: `Error: ${error.message || "Terjadi kesalahan"}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    };
+
+    // Handle QR validation events from OCR server
+    socket.on("qr_valid", async (payload: any) => {
+      const qrValue = payload?.qr;
+      if (qrValue) {
+        // Validate with auto-direction detection
+        await validateQrWithDirection(qrValue);
+      } else {
+        // Fallback if QR value not in payload
+        setQrStatus({
+          valid: true,
+          driverName: payload?.driver?.name,
+          licensePlate: payload?.driver?.vehicle?.licensePlate,
+          message: payload?.message ?? "QR terverifikasi",
+          timestamp: payload?.timestamp,
+        });
+      }
     });
 
-    socket.on("qr_invalid", (payload: any) => {
-      setQrStatus({
-        valid: false,
-        qr: payload?.qr,
-        licensePlate: payload?.driver?.vehicle?.licensePlate,
-        reason: payload?.reason,
-        message: payload?.message ?? "QR tidak valid. Pastikan QR code sesuai dengan Surat Perintah.",
-        timestamp: payload?.timestamp,
-      });
+    socket.on("qr_invalid", async (payload: any) => {
+      const qrValue = payload?.qr;
+      if (qrValue) {
+        // Still try to validate with direction detection for better error messages
+        await validateQrWithDirection(qrValue);
+      } else {
+        setQrStatus({
+          valid: false,
+          qr: payload?.qr,
+          licensePlate: payload?.driver?.vehicle?.licensePlate,
+          reason: payload?.reason,
+          message: payload?.message ?? "QR tidak valid. Pastikan QR code sesuai dengan Surat Perintah.",
+          timestamp: payload?.timestamp,
+        });
+      }
     });
 
     return () => {
@@ -201,11 +302,17 @@ export default function GateKioskPage() {
             <div className="flex items-center justify-between border-t border-white/10 px-4 py-3 text-xs text-neutral-300">
               <div className="flex items-center gap-2">
                 <Radio className="h-4 w-4 text-primary" />
-                <span>Mode: QR Entry</span>
+                <span>Mode: QR {qrStatus?.direction === "exit" ? "Exit" : "Entry/Exit"}</span>
               </div>
               <div className="flex items-center gap-2">
                 <ScanQrCode className="h-4 w-4 text-primary" />
-                <span>Arahkan QR code ke kamera untuk masuk</span>
+                <span>
+                  {qrStatus?.direction === "exit" 
+                    ? "Arahkan QR code untuk keluar" 
+                    : qrStatus?.direction === "entry"
+                    ? "Arahkan QR code untuk masuk"
+                    : "Arahkan QR code ke kamera"}
+                </span>
               </div>
             </div>
             {USE_LOCAL_WEBCAM && cameraError && (
@@ -249,9 +356,16 @@ export default function GateKioskPage() {
               {qrStatus?.valid && (
                 <div className="space-y-2 text-sm">
                   <p className="text-xs uppercase tracking-[0.35em] text-neutral-400">Status</p>
-                  <div className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-300">
-                    Gate In - Silakan Masuk
+                  <div className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                    qrStatus.direction === "exit"
+                      ? "bg-blue-500/10 text-blue-300"
+                      : "bg-emerald-500/10 text-emerald-300"
+                  }`}>
+                    {qrStatus.direction === "exit" ? "Gate Out - Silakan Keluar" : "Gate In - Silakan Masuk"}
                   </div>
+                  {qrStatus.sessionStatus && (
+                    <p className="text-xs text-neutral-500">Status Sesi: {qrStatus.sessionStatus}</p>
+                  )}
                 </div>
               )}
             </div>

@@ -1,22 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, Car, Fuel, HandHelping, Radio, ScanQrCode, ShieldCheck, XCircle } from "lucide-react";
+import { Camera, Fuel, HandHelping, Radio, ScanQrCode, ShieldCheck, XCircle } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_OCR_SOCKET_URL ?? "http://localhost:8000";
-
-interface PlateStatus {
-  recognized: boolean;
-  plate?: string;
-  confidence?: number;
-  driverName?: string;
-  driverCode?: string;
-  licensePlate?: string;
-  message?: string;
-  timestamp?: string;
-  loadSessionId?: string;
-}
 
 interface QrStatus {
   valid: boolean;
@@ -40,7 +28,6 @@ export default function FuelBayKioskPage() {
   
   const [socketStatus, setSocketStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
   const [videoFrame, setVideoFrame] = useState<string | null>(null);
-  const [plateStatus, setPlateStatus] = useState<PlateStatus | null>(null);
   const [qrStatus, setQrStatus] = useState<QrStatus | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [isSendingPreset, setIsSendingPreset] = useState(false);
@@ -49,7 +36,6 @@ export default function FuelBayKioskPage() {
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
-  const [detectionMode, setDetectionMode] = useState<"plate" | "qr">("plate");
 
   // Connect to OCR socket for fuel bay validation
   useEffect(() => {
@@ -63,7 +49,7 @@ export default function FuelBayKioskPage() {
       console.log("[fuel-bay-kiosk] Connected to OCR server");
       setSocketStatus("connected");
       socket.emit("start_stream");
-      socket.emit("set_mode", { mode: "plate" }); // Start with plate detection
+      socket.emit("set_mode", { mode: "qr" }); // QR-only mode
       socket.emit("set_flip_camera", { flip: true }); // Enable camera flip for fuel bay
     });
 
@@ -84,59 +70,63 @@ export default function FuelBayKioskPage() {
       }
     });
 
-    socket.on("driver_detected", (payload: any) => {
-      setPlateStatus({
-        recognized: true,
-        plate: payload?.plate,
-        confidence: payload?.confidence,
-        driverName: payload?.driver?.name,
-        driverCode: payload?.driver?.driverCode,
-        licensePlate: payload?.driver?.vehicle?.licensePlate ?? payload?.plate,
-        message: payload?.message ?? "License plate recognized. Please scan QR code.",
-        timestamp: payload?.timestamp,
-        loadSessionId: payload?.loadSession?.id,
-      });
-      setValidationMessage("License plate validated. Please scan QR code.");
-      // Switch to QR mode after plate is recognized
-      setDetectionMode("qr");
-      socket.emit("set_mode", { mode: "qr" });
-    });
+    socket.on("qr_valid", async (payload: any) => {
+      const qrValue = payload?.qr;
+      if (!qrValue) return;
 
-    socket.on("plate_unrecognized", (payload: any) => {
-      setPlateStatus({
-        recognized: false,
-        plate: payload?.plate,
-        confidence: payload?.confidence,
-        message: payload?.message ?? "License plate not found in today's schedule.",
-        timestamp: payload?.timestamp,
-      });
-      setValidationMessage("License plate not recognized. Please try again.");
-      setQrStatus(null);
-    });
+      try {
+        // Extract session ID from QR to get planned liters
+        const parts = qrValue.split("|");
+        if (parts.length !== 4 || parts[0] !== "VOLTEX" || parts[1] !== "SPA") {
+          setQrStatus({
+            valid: false,
+            qr: qrValue,
+            message: "Format QR tidak valid",
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
 
-    socket.on("qr_valid", (payload: any) => {
-      const qrData: QrStatus = {
-        valid: true,
-        qr: payload?.qr,
-        driverName: payload?.driver?.name,
-        licensePlate: payload?.driver?.vehicle?.licensePlate,
-        message: payload?.message ?? "QR validated successfully.",
-        timestamp: payload?.timestamp,
-        loadSessionId: payload?.loadSession?.id,
-        plannedLiters: payload?.loadSession?.order?.plannedLiters 
-          ? Number(payload.loadSession.order.plannedLiters) 
-          : undefined,
-      };
-      
-      setQrStatus(qrData);
-      
-      // Check if plate was already validated
-      if (!plateStatus?.recognized) {
-        setValidationMessage("Please scan license plate first, then QR code.");
-      } else if (plateStatus.loadSessionId !== qrData.loadSessionId) {
-        setValidationMessage("QR code does not match the license plate. Please verify.");
-      } else {
-        setValidationMessage("Both validations complete! Processing...");
+        const sessionId = parts[3];
+        
+        // Fetch session data to get planned liters
+        const sessionRes = await fetch(`/api/load-sessions/${sessionId}`);
+        if (!sessionRes.ok) {
+          setQrStatus({
+            valid: false,
+            qr: qrValue,
+            message: "Sesi tidak ditemukan",
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
+        const sessionData = await sessionRes.json();
+        const plannedLiters = sessionData.order?.plannedLiters 
+          ? Number(sessionData.order.plannedLiters) 
+          : undefined;
+
+        const qrData: QrStatus = {
+          valid: true,
+          qr: qrValue,
+          driverName: payload?.driver?.name ?? sessionData.order?.driver?.name,
+          licensePlate: payload?.driver?.vehicle?.licensePlate ?? sessionData.order?.vehicle?.licensePlate,
+          message: payload?.message ?? "QR validated successfully.",
+          timestamp: payload?.timestamp ?? new Date().toISOString(),
+          loadSessionId: sessionId,
+          plannedLiters,
+        };
+        
+        setQrStatus(qrData);
+        setValidationMessage("QR code validated. Processing preset...");
+      } catch (error: any) {
+        console.error("Error processing QR:", error);
+        setQrStatus({
+          valid: false,
+          qr: qrValue,
+          message: `Error: ${error.message || "Terjadi kesalahan"}`,
+          timestamp: new Date().toISOString(),
+        });
       }
     });
 
@@ -158,22 +148,20 @@ export default function FuelBayKioskPage() {
     };
   }, []); // Empty dependency array - socket events are set up once
 
-  // Separate effect to handle validation when both plate and QR are available
+  // Handle preset sending when QR is validated
   useEffect(() => {
     if (
-      plateStatus?.recognized && 
       qrStatus?.valid && 
-      plateStatus.loadSessionId && 
       qrStatus.loadSessionId &&
-      plateStatus.loadSessionId === qrStatus.loadSessionId &&
       qrStatus.plannedLiters &&
+      qrStatus.plannedLiters > 0 &&
       !presetSent &&
       !isSendingPreset
     ) {
       handleBothValidated(qrStatus.loadSessionId, qrStatus.plannedLiters);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plateStatus?.loadSessionId, qrStatus?.loadSessionId, qrStatus?.valid, qrStatus?.plannedLiters, presetSent, isSendingPreset]);
+  }, [qrStatus?.valid, qrStatus?.loadSessionId, qrStatus?.plannedLiters, presetSent, isSendingPreset]);
 
   // Handle when both plate and QR are validated
   const handleBothValidated = async (sessionId: string, plannedLiters: number) => {
@@ -282,12 +270,10 @@ export default function FuelBayKioskPage() {
   }, []);
 
   const resetValidation = () => {
-    setPlateStatus(null);
     setQrStatus(null);
     setValidationMessage(null);
     setPresetSent(false);
-    setDetectionMode("plate");
-    socketRef.current?.emit("set_mode", { mode: "plate" });
+    socketRef.current?.emit("set_mode", { mode: "qr" });
   };
 
   return (
@@ -297,15 +283,15 @@ export default function FuelBayKioskPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.5em] text-neutral-500">Fuel Bay</p>
           <h1 className="text-5xl font-semibold tracking-[0.3em] text-white">VALIDASI KENDARAAN</h1>
           <p className="text-base text-neutral-400">
-            Lakukan validasi dua langkah: pertama scan license plate, kemudian scan QR code untuk memulai pengisian.
+            Scan QR code dari Surat Perintah untuk memulai pengisian bahan bakar.
           </p>
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-400">Instruksi</p>
             <div className="mt-4 space-y-3 text-sm text-neutral-300">
               <p>1. Pastikan kendaraan sudah melalui Gate In.</p>
-              <p>2. Arahkan kamera ke license plate kendaraan.</p>
-              <p>3. Setelah license plate terdeteksi, scan QR code dari Surat Perintah.</p>
-              <p>4. Sistem akan mengirim target pengisian ke fuel pump secara otomatis.</p>
+              <p>2. Arahkan kamera ke QR code pada Surat Perintah.</p>
+              <p>3. Sistem akan mengirim target pengisian ke fuel pump secara otomatis.</p>
+              <p>4. Proses pengisian akan dimulai setelah preset terkirim.</p>
             </div>
           </div>
           <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-transparent p-6 text-sm text-neutral-300">
@@ -354,19 +340,12 @@ export default function FuelBayKioskPage() {
             <div className="mt-3 flex items-center justify-between text-xs text-neutral-300">
               <div className="flex items-center gap-2">
                 <Radio className="h-4 w-4 text-primary" />
-                <span>Mode: {detectionMode.toUpperCase()}</span>
+                <span>Mode: QR</span>
               </div>
-              {detectionMode === "plate" ? (
-                <div className="flex items-center gap-2">
-                  <Car className="h-4 w-4 text-primary" />
-                  <span>Arahkan ke license plate</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <ScanQrCode className="h-4 w-4 text-primary" />
-                  <span>Arahkan ke QR code</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <ScanQrCode className="h-4 w-4 text-primary" />
+                <span>Arahkan ke QR code</span>
+              </div>
             </div>
           </div>
 
@@ -418,33 +397,6 @@ export default function FuelBayKioskPage() {
           <div className="space-y-4 rounded-2xl border border-white/10 bg-black/40 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-400">Status Validasi</p>
             
-            {/* License Plate Status */}
-            <div className="rounded-xl border border-white/10 bg-black/60 p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-400">License Plate</span>
-                {plateStatus ? (
-                  plateStatus.recognized ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
-                      <ShieldCheck className="h-3 w-3" /> Valid
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
-                      <XCircle className="h-3 w-3" /> Invalid
-                    </span>
-                  )
-                ) : (
-                  <span className="text-xs text-neutral-500">Pending</span>
-                )}
-              </div>
-              {plateStatus && (
-                <div className="space-y-1 text-xs text-neutral-300">
-                  <p>Plate: {plateStatus.plate ?? "-"}</p>
-                  <p>Driver: {plateStatus.driverName ?? "-"}</p>
-                  <p>Time: {formatTime(plateStatus.timestamp)}</p>
-                </div>
-              )}
-            </div>
-
             {/* QR Status */}
             <div className="rounded-xl border border-white/10 bg-black/60 p-3">
               <div className="flex items-center justify-between mb-2">
@@ -491,7 +443,7 @@ export default function FuelBayKioskPage() {
             )}
 
             {/* Reset Button */}
-            {(plateStatus || qrStatus) && (
+            {qrStatus && (
               <button
                 type="button"
                 onClick={resetValidation}
