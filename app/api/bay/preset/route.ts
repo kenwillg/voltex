@@ -9,7 +9,7 @@ import { LoadStatus } from "@prisma/client";
 //
 // For now: single bay controller.
 // Later you can map session.order.product / bayId → different IPs.
-const ESP32_BAY_IP = "192.168.112.80";
+const ESP32_BAY_IP = process.env.ESP32_BAY_IP;
 
 // Helper to push preset to bay controller
 async function sendPresetToBay(opts: {
@@ -71,19 +71,12 @@ async function handlePreset(req: NextRequest) {
     );
   }
 
-  // Optional: enforce only certain statuses can be preset
-  if (
-    ![
-      LoadStatus.SCHEDULED,
-      LoadStatus.GATE_IN,
-      LoadStatus.QUEUED,
-      LoadStatus.LOADING,
-    ].includes(session.status)
-  ) {
+  // Only allow GATE_IN status to start filling
+  if (session.status !== LoadStatus.GATE_IN) {
     return NextResponse.json(
       {
         ok: false,
-        message: `Cannot preset for status ${session.status}`,
+        message: `Order status must be GATE_IN to start filling. Current status: ${session.status}`,
       },
       { status: 400 },
     );

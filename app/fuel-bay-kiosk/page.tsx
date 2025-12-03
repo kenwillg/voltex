@@ -1,95 +1,221 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Camera, Fuel, HandHelping } from "lucide-react";
-import { useStatusContext } from "@/contexts/status-context";
-import { StatusManager } from "@/lib/base-component";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Car, Fuel, HandHelping, Radio, ScanQrCode, ShieldCheck, XCircle } from "lucide-react";
+import io, { Socket } from "socket.io-client";
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_OCR_SOCKET_URL ?? "http://localhost:8000";
+
+interface PlateStatus {
+  recognized: boolean;
+  plate?: string;
+  confidence?: number;
+  driverName?: string;
+  driverCode?: string;
+  licensePlate?: string;
+  message?: string;
+  timestamp?: string;
+  loadSessionId?: string;
+}
+
+interface QrStatus {
+  valid: boolean;
+  qr?: string;
+  driverName?: string;
+  licensePlate?: string;
+  message?: string;
+  reason?: string;
+  timestamp?: string;
+  loadSessionId?: string;
+  plannedLiters?: number;
+}
 
 const formatTime = (value?: string) =>
-  value ? new Date(value).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-";
+  value ? new Date(value).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
 
 export default function FuelBayKioskPage() {
-  const { sessions, getSession, verifyFuelPin, startFueling, finishFueling } = useStatusContext();
-
-  const [selectedOrderId, setSelectedOrderId] = useState(sessions[0]?.orderId ?? "");
-  const [selectedSession, setSelectedSession] = useState(() => sessions[0]);
-  const [orderIdInput, setOrderIdInput] = useState(sessions[0]?.orderId ?? "");
-  const [pinInput, setPinInput] = useState("");
-  const [pinMessage, setPinMessage] = useState<string | null>(null);
-  const [fillProgress, setFillProgress] = useState(0);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [cameraOn, setCameraOn] = useState(false);
-  const [isStartingCamera, setIsStartingCamera] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  
+  const [socketStatus, setSocketStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
+  const [videoFrame, setVideoFrame] = useState<string | null>(null);
+  const [plateStatus, setPlateStatus] = useState<PlateStatus | null>(null);
+  const [qrStatus, setQrStatus] = useState<QrStatus | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [isSendingPreset, setIsSendingPreset] = useState(false);
+  const [presetSent, setPresetSent] = useState(false);
+  
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isStartingCamera, setIsStartingCamera] = useState(false);
+  const [detectionMode, setDetectionMode] = useState<"plate" | "qr">("plate");
 
-  const currentSession = useMemo(() => {
-    if (!selectedSession) {
-      const fallback = sessions.find((session) => session.orderId === selectedOrderId);
-      return fallback ?? sessions[0];
-    }
-    return selectedSession;
-  }, [selectedSession, sessions, selectedOrderId]);
-
+  // Connect to OCR socket for fuel bay validation
   useEffect(() => {
-    setSelectedOrderId((prev) => prev || (sessions[0]?.orderId ?? ""));
-    setOrderIdInput((prev) => prev || (sessions[0]?.orderId ?? ""));
-    setSelectedSession((prev) => prev ?? sessions[0]);
-  }, [sessions]);
+    const socket = io(SOCKET_URL, {
+      transports: ["polling"],
+      path: "/socket.io/",
+    });
+    socketRef.current = socket;
 
+    socket.on("connect", () => {
+      console.log("[fuel-bay-kiosk] Connected to OCR server");
+      setSocketStatus("connected");
+      socket.emit("start_stream");
+      socket.emit("set_mode", { mode: "plate" }); // Start with plate detection
+      socket.emit("set_flip_camera", { flip: true }); // Enable camera flip for fuel bay
+    });
+
+    socket.on("disconnect", () => {
+      setSocketStatus("disconnected");
+      setVideoFrame(null);
+    });
+
+    socket.on("connect_error", () => {
+      setSocketStatus("disconnected");
+    });
+
+    socket.on("video_feed", (payload: { frame?: string }) => {
+      if (payload?.frame && payload.frame.length > 10) {
+        setVideoFrame(payload.frame);
+      } else {
+        setVideoFrame(null);
+      }
+    });
+
+    socket.on("driver_detected", (payload: any) => {
+      setPlateStatus({
+        recognized: true,
+        plate: payload?.plate,
+        confidence: payload?.confidence,
+        driverName: payload?.driver?.name,
+        driverCode: payload?.driver?.driverCode,
+        licensePlate: payload?.driver?.vehicle?.licensePlate ?? payload?.plate,
+        message: payload?.message ?? "License plate recognized. Please scan QR code.",
+        timestamp: payload?.timestamp,
+        loadSessionId: payload?.loadSession?.id,
+      });
+      setValidationMessage("License plate validated. Please scan QR code.");
+      // Switch to QR mode after plate is recognized
+      setDetectionMode("qr");
+      socket.emit("set_mode", { mode: "qr" });
+    });
+
+    socket.on("plate_unrecognized", (payload: any) => {
+      setPlateStatus({
+        recognized: false,
+        plate: payload?.plate,
+        confidence: payload?.confidence,
+        message: payload?.message ?? "License plate not found in today's schedule.",
+        timestamp: payload?.timestamp,
+      });
+      setValidationMessage("License plate not recognized. Please try again.");
+      setQrStatus(null);
+    });
+
+    socket.on("qr_valid", (payload: any) => {
+      const qrData: QrStatus = {
+        valid: true,
+        qr: payload?.qr,
+        driverName: payload?.driver?.name,
+        licensePlate: payload?.driver?.vehicle?.licensePlate,
+        message: payload?.message ?? "QR validated successfully.",
+        timestamp: payload?.timestamp,
+        loadSessionId: payload?.loadSession?.id,
+        plannedLiters: payload?.loadSession?.order?.plannedLiters 
+          ? Number(payload.loadSession.order.plannedLiters) 
+          : undefined,
+      };
+      
+      setQrStatus(qrData);
+      
+      // Check if plate was already validated
+      if (!plateStatus?.recognized) {
+        setValidationMessage("Please scan license plate first, then QR code.");
+      } else if (plateStatus.loadSessionId !== qrData.loadSessionId) {
+        setValidationMessage("QR code does not match the license plate. Please verify.");
+      } else {
+        setValidationMessage("Both validations complete! Processing...");
+      }
+    });
+
+    socket.on("qr_invalid", (payload: any) => {
+      setQrStatus({
+        valid: false,
+        qr: payload?.qr,
+        licensePlate: payload?.driver?.vehicle?.licensePlate,
+        reason: payload?.reason,
+        message: payload?.message ?? "QR code invalid.",
+        timestamp: payload?.timestamp,
+      });
+      setValidationMessage("QR code invalid. Please scan again.");
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, []); // Empty dependency array - socket events are set up once
+
+  // Separate effect to handle validation when both plate and QR are available
   useEffect(() => {
-    if (currentSession?.status === "LOADING") {
-      setFillProgress(10);
-      const timer = setInterval(() => {
-        setFillProgress((prev) => (prev >= 100 ? 15 : prev + 5));
-      }, 300);
-      return () => clearInterval(timer);
+    if (
+      plateStatus?.recognized && 
+      qrStatus?.valid && 
+      plateStatus.loadSessionId && 
+      qrStatus.loadSessionId &&
+      plateStatus.loadSessionId === qrStatus.loadSessionId &&
+      qrStatus.plannedLiters &&
+      !presetSent &&
+      !isSendingPreset
+    ) {
+      handleBothValidated(qrStatus.loadSessionId, qrStatus.plannedLiters);
     }
-    setFillProgress(0);
-  }, [currentSession?.status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plateStatus?.loadSessionId, qrStatus?.loadSessionId, qrStatus?.valid, qrStatus?.plannedLiters, presetSent, isSendingPreset]);
 
-  const handleLoadOrder = () => {
-    if (!orderIdInput.trim()) return;
-    const found = getSession(orderIdInput.trim().toUpperCase());
-    if (found) {
-      setSelectedSession(found);
-      setSelectedOrderId(found.orderId);
-      setPinMessage(null);
-    } else {
-      setPinMessage("Order tidak ditemukan, silakan periksa kembali nomor perintah.");
-    }
-  };
+  // Handle when both plate and QR are validated
+  const handleBothValidated = async (sessionId: string, plannedLiters: number) => {
+    if (isSendingPreset || presetSent) return;
+    
+    setIsSendingPreset(true);
+    setValidationMessage("Validating order status and sending preset to fuel pump...");
 
-  const handleVerifyPin = () => {
-    if (!currentSession) return;
-    if (!pinInput.trim()) {
-      setPinMessage("Masukkan PIN yang dikirim via email.");
-      return;
-    }
-    const result = verifyFuelPin(currentSession.orderId, pinInput.trim());
-    setPinMessage(result.message);
-    if (result.order) {
-      setSelectedSession(result.order);
-    }
-  };
+    try {
+      // First check if the session status is GATE_IN
+      const sessionRes = await fetch(`/api/load-sessions/${sessionId}`);
+      if (!sessionRes.ok) {
+        throw new Error("Failed to fetch session");
+      }
+      const sessionData = await sessionRes.json();
+      
+      if (sessionData.status !== "GATE_IN") {
+        setValidationMessage(`Order status is ${sessionData.status}. Only GATE_IN orders can start filling.`);
+        setIsSendingPreset(false);
+        return;
+      }
 
-  const handleStart = () => {
-    if (!currentSession) return;
-    const updated = startFueling(currentSession.orderId);
-    if (updated) {
-      setSelectedSession(updated);
-      setPinMessage("Proses pengisian dimulai.");
-    } else {
-      setPinMessage("PIN harus diverifikasi sebelum memulai pengisian.");
-    }
-  };
+      // Send preset to ESP32 via /api/bay/preset
+      const presetRes = await fetch("/api/bay/preset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
 
-  const handleFinish = () => {
-    if (!currentSession) return;
-    const updated = finishFueling(currentSession.orderId);
-    if (updated) {
-      setSelectedSession(updated);
-      setPinMessage("Pengisian selesai, lanjutkan ke Gate Out.");
+      if (!presetRes.ok) {
+        const errorData = await presetRes.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to send preset");
+      }
+
+      const presetData = await presetRes.json();
+      setPresetSent(true);
+      setValidationMessage(`Preset sent successfully! Target: ${plannedLiters}L. Status changed to LOADING.`);
+    } catch (err: any) {
+      console.error("Error sending preset:", err);
+      setValidationMessage(`Error: ${err.message || "Failed to send preset to fuel pump"}`);
+    } finally {
+      setIsSendingPreset(false);
     }
   };
 
@@ -110,7 +236,6 @@ export default function FuelBayKioskPage() {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         
-        // Wait for metadata to load
         videoRef.current.onloadedmetadata = async () => {
           try {
             if (videoRef.current) {
@@ -156,23 +281,31 @@ export default function FuelBayKioskPage() {
     };
   }, []);
 
+  const resetValidation = () => {
+    setPlateStatus(null);
+    setQrStatus(null);
+    setValidationMessage(null);
+    setPresetSent(false);
+    setDetectionMode("plate");
+    socketRef.current?.emit("set_mode", { mode: "plate" });
+  };
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto flex max-w-6xl flex-col gap-10 px-6 py-12 lg:flex-row">
         <section className="flex-1 space-y-6">
           <p className="text-sm font-semibold uppercase tracking-[0.5em] text-neutral-500">Fuel Bay</p>
-          <h1 className="text-5xl font-semibold tracking-[0.3em] text-white">SELAMAT DATANG</h1>
+          <h1 className="text-5xl font-semibold tracking-[0.3em] text-white">VALIDASI KENDARAAN</h1>
           <p className="text-base text-neutral-400">
-            Masukkan nomor order dan PIN konfirmasi atau tempelkan QR pada scanner untuk membuka akses pengisian.
-            <br />
-            Atau arahkan QR kode yang dikirimkan ke kamera.
+            Lakukan validasi dua langkah: pertama scan license plate, kemudian scan QR code untuk memulai pengisian.
           </p>
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-400">Bantuan Cepat</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-400">Instruksi</p>
             <div className="mt-4 space-y-3 text-sm text-neutral-300">
-              <p>1. Verifikasi order dengan memasukkan nomor atau melakukan scan.</p>
-              <p>2. Ketik PIN yang dikirim via email driver.</p>
-              <p>3. Tekan tombol Start untuk membuka valve, dan Finish setelah tanki penuh.</p>
+              <p>1. Pastikan kendaraan sudah melalui Gate In.</p>
+              <p>2. Arahkan kamera ke license plate kendaraan.</p>
+              <p>3. Setelah license plate terdeteksi, scan QR code dari Surat Perintah.</p>
+              <p>4. Sistem akan mengirim target pengisian ke fuel pump secara otomatis.</p>
             </div>
           </div>
           <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-transparent p-6 text-sm text-neutral-300">
@@ -187,57 +320,62 @@ export default function FuelBayKioskPage() {
         <section className="flex-1 space-y-6 rounded-[40px] border border-white/10 bg-white/5 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.5em] text-neutral-400">Validasi Order</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.5em] text-neutral-400">Validasi Kendaraan</p>
               <h2 className="text-2xl font-semibold text-white">Fuel Bay Console</h2>
             </div>
             <Fuel className="h-10 w-10 text-primary" />
           </div>
 
-          <div className="space-y-3">
-            <label className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-400">Masukkan Order ID</label>
-            <input
-              className="w-full rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-lg font-semibold tracking-[0.4em] text-white"
-              value={orderIdInput}
-              onChange={(event) => setOrderIdInput(event.target.value.toUpperCase())}
-            />
-          </div>
-
-          <div className="space-y-3">
-            <label className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-400">PIN Konfirmasi</label>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              className="w-full rounded-2xl border border-white/15 bg-black/40 px-4 py-3 text-center text-2xl font-semibold tracking-[0.6em] text-white"
-              value={pinInput}
-              onChange={(event) => setPinInput(event.target.value.replace(/\\D/g, ""))}
-            />
-            <button
-              type="button"
-              onClick={handleVerifyPin}
-              className="w-full rounded-3xl bg-primary px-4 py-4 text-sm font-semibold text-black transition hover:bg-primary/90"
-            >
-              Verifikasi
-            </button>
-          </div>
-
-          {pinMessage && (
-            <div className="rounded-2xl border border-primary/40 bg-primary/10 px-4 py-3 text-sm text-primary">
-              {pinMessage}
+          {/* Camera view */}
+          <div className="rounded-3xl border border-white/10 bg-black/40 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <Camera className="h-5 w-5 text-primary" />
+                <p className="text-base font-semibold text-white">OCR Camera Stream</p>
+              </div>
+              <div className="rounded-full border border-white/10 px-3 py-1 text-xs text-neutral-400">
+                <span className={`mr-2 inline-block h-2 w-2 rounded-full ${socketStatus === "connected" ? "bg-emerald-400" : "bg-amber-400"}`} />
+                {socketStatus === "connected" ? "Terhubung" : "Menyambung..."}
+              </div>
             </div>
-          )}
-
-          <div className="flex items-center gap-4 py-4">
-            <div className="h-px flex-1 bg-white/10" />
-            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">Atau</span>
-            <div className="h-px flex-1 bg-white/10" />
+            <div className="relative h-64 w-full overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+              {videoFrame ? (
+                <img
+                  src={videoFrame}
+                  alt="Live OCR camera feed"
+                  className="h-full w-full object-cover scale-y-[-1]"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-neutral-500">
+                  {socketStatus === "connected" ? "Menunggu stream kamera..." : "Menghubungkan ke kamera..."}
+                </div>
+              )}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs text-neutral-300">
+              <div className="flex items-center gap-2">
+                <Radio className="h-4 w-4 text-primary" />
+                <span>Mode: {detectionMode.toUpperCase()}</span>
+              </div>
+              {detectionMode === "plate" ? (
+                <div className="flex items-center gap-2">
+                  <Car className="h-4 w-4 text-primary" />
+                  <span>Arahkan ke license plate</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <ScanQrCode className="h-4 w-4 text-primary" />
+                  <span>Arahkan ke QR code</span>
+                </div>
+              )}
+            </div>
           </div>
 
+          {/* Local webcam option */}
           <div className="rounded-3xl border border-white/10 bg-black/40 p-5 text-sm text-neutral-300">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Camera className="h-5 w-5 text-primary" />
-                <p className="text-base font-semibold text-white">Webcam QR Scanner</p>
+                <p className="text-base font-semibold text-white">Webcam Lokal (Opsional)</p>
               </div>
               {!cameraOn ? (
                 <button
@@ -246,7 +384,7 @@ export default function FuelBayKioskPage() {
                   disabled={isStartingCamera}
                   className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-black transition hover:bg-primary/90 disabled:opacity-50"
                 >
-                  {isStartingCamera ? "Memulai..." : "Aktifkan Kamera"}
+                  {isStartingCamera ? "Memulai..." : "Aktifkan"}
                 </button>
               ) : (
                 <button
@@ -254,59 +392,115 @@ export default function FuelBayKioskPage() {
                   onClick={stopCamera}
                   className="rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-400 transition hover:bg-red-500/20"
                 >
-                  Matikan Kamera
+                  Matikan
                 </button>
               )}
             </div>
-            <p className="mt-2 text-xs text-neutral-400">
-              Tekan tombol untuk mengaktifkan kamera, lalu arahkan QR kode ke kamera untuk dipindai.
-            </p>
             {cameraError && (
-              <p className="mt-2 text-xs text-amber-400">
-                {cameraError} (pastikan browser sudah mengizinkan akses kamera)
-              </p>
+              <p className="mt-2 text-xs text-amber-400">{cameraError}</p>
             )}
-            <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-              <div className="relative h-64 w-full">
-                <video
-                  ref={videoRef}
-                  className={`absolute inset-0 h-full w-full object-cover ${!cameraOn ? "hidden" : ""}`}
-                  playsInline
-                  muted
-                  autoPlay
-                />
-                {!cameraOn && (
-                  <div className="flex h-full items-center justify-center text-xs text-neutral-500">
-                    {isStartingCamera ? "Memulai kamera..." : "Kamera belum aktif"}
-                  </div>
-                )}
+            {cameraOn && (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                <div className="relative h-48 w-full">
+                  <video
+                    ref={videoRef}
+                    className="absolute inset-0 h-full w-full object-cover scale-y-[-1]"
+                    playsInline
+                    muted
+                    autoPlay
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {currentSession && currentSession.status === "LOADING" && (
-            <div className="space-y-3 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4 text-sm text-emerald-50">
-              <div className="flex items-center gap-2 text-emerald-300">
-                <Fuel className="h-4 w-4" />
-                <p>Simulasi: pengisian sedang berlangsung</p>
+          {/* Validation Status */}
+          <div className="space-y-4 rounded-2xl border border-white/10 bg-black/40 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-neutral-400">Status Validasi</p>
+            
+            {/* License Plate Status */}
+            <div className="rounded-xl border border-white/10 bg-black/60 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-400">License Plate</span>
+                {plateStatus ? (
+                  plateStatus.recognized ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                      <ShieldCheck className="h-3 w-3" /> Valid
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+                      <XCircle className="h-3 w-3" /> Invalid
+                    </span>
+                  )
+                ) : (
+                  <span className="text-xs text-neutral-500">Pending</span>
+                )}
               </div>
-              <div className="h-3 w-full rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-emerald-400 transition-[width] duration-300 ease-linear"
-                  style={{ width: `${fillProgress}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-xs text-emerald-200">
-                <span>Tanki</span>
-                <span>{fillProgress}%</span>
-              </div>
-              <div className="grid gap-2 text-xs text-emerald-200">
-                <div className="h-2 w-full animate-pulse rounded-full bg-emerald-400/40" />
-                <div className="h-2 w-4/5 animate-pulse rounded-full bg-emerald-400/30" />
-                <div className="h-2 w-3/5 animate-pulse rounded-full bg-emerald-400/20" />
-              </div>
+              {plateStatus && (
+                <div className="space-y-1 text-xs text-neutral-300">
+                  <p>Plate: {plateStatus.plate ?? "-"}</p>
+                  <p>Driver: {plateStatus.driverName ?? "-"}</p>
+                  <p>Time: {formatTime(plateStatus.timestamp)}</p>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* QR Status */}
+            <div className="rounded-xl border border-white/10 bg-black/60 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-400">QR Code</span>
+                {qrStatus ? (
+                  qrStatus.valid ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                      <ShieldCheck className="h-3 w-3" /> Valid
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+                      <XCircle className="h-3 w-3" /> Invalid
+                    </span>
+                  )
+                ) : (
+                  <span className="text-xs text-neutral-500">Pending</span>
+                )}
+              </div>
+              {qrStatus && (
+                <div className="space-y-1 text-xs text-neutral-300">
+                  <p>QR: {qrStatus.qr ?? "-"}</p>
+                  <p>Driver: {qrStatus.driverName ?? "-"}</p>
+                  <p>Target: {qrStatus.plannedLiters ? `${qrStatus.plannedLiters}L` : "-"}</p>
+                  <p>Time: {formatTime(qrStatus.timestamp)}</p>
+                  {qrStatus.reason && (
+                    <p className="text-amber-400">Reason: {qrStatus.reason}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Validation Message */}
+            {validationMessage && (
+              <div className={`rounded-xl border p-3 text-sm ${
+                validationMessage.includes("Error") || validationMessage.includes("invalid")
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                  : validationMessage.includes("success") || validationMessage.includes("Preset sent")
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-primary/40 bg-primary/10 text-primary"
+              }`}>
+                {validationMessage}
+                {isSendingPreset && <span className="ml-2 animate-pulse">...</span>}
+              </div>
+            )}
+
+            {/* Reset Button */}
+            {(plateStatus || qrStatus) && (
+              <button
+                type="button"
+                onClick={resetValidation}
+                className="w-full rounded-xl border border-white/20 bg-black/40 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+              >
+                Reset Validasi
+              </button>
+            )}
+          </div>
         </section>
       </div>
     </div>

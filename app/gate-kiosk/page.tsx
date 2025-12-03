@@ -4,17 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { Car, Radio, ScanQrCode, ShieldCheck, XCircle } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 
-type DetectionMode = "plate" | "qr" | "idle";
-
-interface PlateStatus {
-  recognized: boolean;
-  plate?: string;
-  confidence?: number;
-  driverName?: string;
-  message?: string;
-  timestamp?: string;
-}
-
 interface QrStatus {
   valid: boolean;
   qr?: string;
@@ -24,8 +13,6 @@ interface QrStatus {
   reason?: string;
   timestamp?: string;
 }
-
-type GateStep = "GATE_IN" | "LOADING" | "GATE_OUT";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_OCR_SOCKET_URL ?? "http://localhost:8000";
 const USE_LOCAL_WEBCAM = process.env.NEXT_PUBLIC_GATE_KIOSK_LOCAL_CAM === "true"; // default off
@@ -40,11 +27,8 @@ export default function GateKioskPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [socketStatus, setSocketStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
-  const [detectionMode, setDetectionMode] = useState<DetectionMode>("qr");
   const [videoFrame, setVideoFrame] = useState<string | null>(null);
-  const [plateStatus, setPlateStatus] = useState<PlateStatus | null>(null);
   const [qrStatus, setQrStatus] = useState<QrStatus | null>(null);
-  const [currentStep, setCurrentStep] = useState<GateStep>("GATE_IN");
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
@@ -72,12 +56,11 @@ export default function GateKioskPage() {
     });
     socket.on("connect_error", () => setSocketStatus("disconnected"));
 
-    socket.on("connection_status", (payload: { mode?: DetectionMode }) => {
-      // force kiosk to stay on QR mode even if server suggests otherwise
-      setDetectionMode("qr");
+    socket.on("connection_status", () => {
+      // QR-only mode for entry gate
     });
-    socket.on("mode_changed", (payload: { mode?: DetectionMode }) => {
-      setDetectionMode("qr");
+    socket.on("mode_changed", () => {
+      // QR-only mode for entry gate
     });
     socket.on("video_feed", (payload: { frame?: string }) => {
       if (payload?.frame && payload.frame.length > 10) {
@@ -93,47 +76,15 @@ export default function GateKioskPage() {
       }
     });
 
-    socket.on("driver_detected", (payload: any) => {
-      setPlateStatus({
-        recognized: true,
-        plate: payload?.plate,
-        confidence: payload?.confidence,
-        driverName: payload?.driver?.name,
-        message: payload?.message ?? "Plat dikenali, lanjutkan dengan QR.",
-        timestamp: payload?.timestamp,
-      });
-      setQrStatus(null);
-      setCurrentStep("LOADING");
-      setDetectionMode("qr");
-      // optional prompt to server if supported
-      socket.emit("request_mode_change", { mode: "qr" });
-    });
-
-    socket.on("plate_unrecognized", (payload: any) => {
-      setPlateStatus({
-        recognized: false,
-        plate: payload?.plate,
-        confidence: payload?.confidence,
-        message: payload?.message ?? "Plat tidak ditemukan di jadwal hari ini.",
-        timestamp: payload?.timestamp,
-      });
-      setQrStatus(null);
-      setCurrentStep("GATE_IN");
-      setDetectionMode("qr");
-    });
-
     socket.on("qr_valid", (payload: any) => {
       setQrStatus({
         valid: true,
         qr: payload?.qr,
         driverName: payload?.driver?.name,
         licensePlate: payload?.driver?.vehicle?.licensePlate,
-        message: payload?.message ?? "QR terverifikasi, silakan lanjut Gate Out.",
+        message: payload?.message ?? "QR terverifikasi, silakan masuk.",
         timestamp: payload?.timestamp,
       });
-      setCurrentStep("GATE_OUT");
-      setDetectionMode("qr");
-      socket.emit("request_mode_change", { mode: "qr" });
     });
 
     socket.on("qr_invalid", (payload: any) => {
@@ -142,12 +93,9 @@ export default function GateKioskPage() {
         qr: payload?.qr,
         licensePlate: payload?.driver?.vehicle?.licensePlate,
         reason: payload?.reason,
-        message: payload?.message ?? "QR tidak valid.",
+        message: payload?.message ?? "QR tidak valid. Pastikan QR code sesuai dengan Surat Perintah.",
         timestamp: payload?.timestamp,
       });
-      setCurrentStep("LOADING");
-      setDetectionMode("qr");
-      socket.emit("request_mode_change", { mode: "qr" });
     });
 
     return () => {
@@ -195,11 +143,11 @@ export default function GateKioskPage() {
     };
   }, []);
 
-  const driverName = qrStatus?.driverName ?? plateStatus?.driverName ?? "-";
-  const licensePlate = qrStatus?.licensePlate ?? plateStatus?.plate ?? "-";
+  const driverName = qrStatus?.driverName ?? "-";
+  const licensePlate = qrStatus?.licensePlate ?? "-";
   const qrCodeText = qrStatus?.qr ?? "Belum terbaca";
-  const qrMessage = qrStatus?.message ?? (plateStatus?.message || "Siapkan QR untuk validasi");
-  const qrTime = formatTime(qrStatus?.timestamp ?? plateStatus?.timestamp);
+  const qrMessage = qrStatus?.message ?? "Siapkan QR code untuk validasi masuk";
+  const qrTime = formatTime(qrStatus?.timestamp);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -253,11 +201,11 @@ export default function GateKioskPage() {
             <div className="flex items-center justify-between border-t border-white/10 px-4 py-3 text-xs text-neutral-300">
               <div className="flex items-center gap-2">
                 <Radio className="h-4 w-4 text-primary" />
-                <span>Mode: QR</span>
+                <span>Mode: QR Entry</span>
               </div>
               <div className="flex items-center gap-2">
                 <ScanQrCode className="h-4 w-4 text-primary" />
-                <span>Gerakkan QR ke area kamera</span>
+                <span>Arahkan QR code ke kamera untuk masuk</span>
               </div>
             </div>
             {USE_LOCAL_WEBCAM && cameraError && (
@@ -298,26 +246,14 @@ export default function GateKioskPage() {
                 {qrStatus?.reason && <p className="text-amber-400 text-xs">Alasan: {qrStatus.reason}</p>}
               </div>
 
-              <div className="space-y-2 text-sm">
-                <p className="text-xs uppercase tracking-[0.35em] text-neutral-400">Status Gate</p>
-                <div className="flex flex-wrap gap-2">
-                  {(["GATE_IN", "LOADING", "GATE_OUT"] as GateStep[]).map((step) => {
-                    const active = step === currentStep;
-                    return (
-                      <span
-                        key={step}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition ${active ? "bg-primary text-black" : "bg-white/10 text-neutral-300"
-                          }`}
-                      >
-                        {step.replace("_", " ")}
-                      </span>
-                    );
-                  })}
+              {qrStatus?.valid && (
+                <div className="space-y-2 text-sm">
+                  <p className="text-xs uppercase tracking-[0.35em] text-neutral-400">Status</p>
+                  <div className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-300">
+                    Gate In - Silakan Masuk
+                  </div>
                 </div>
-                <p className="text-xs text-neutral-400">
-                  Alur dapat lompat (Gate In → Loading → Gate Out) mengikuti hasil OCR/QR secara dinamis.
-                </p>
-              </div>
+              )}
             </div>
           </div>
         </div>
