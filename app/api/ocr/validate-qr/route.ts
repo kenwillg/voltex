@@ -110,9 +110,17 @@ export async function GET(req: NextRequest) {
 				updatedSession = await prisma.loadSession.update({
 					where: { id: session.id },
 					data: { status: "GATE_IN", gateInAt: now },
+					include: {
+						order: {
+							include: {
+								driver: true,
+								vehicle: true,
+							},
+						},
+					},
 				});
 				transition = "GATE_IN";
-			} else if (session.status === "GATE_IN" || session.status === "LOADING" || session.status === "GATE_OUT") {
+			} else if (session.status === "GATE_IN" || session.status === "LOADING" || session.status === "LOADING_COMPLETED" || session.status === "GATE_OUT") {
 				// Already inside or beyond
 				return NextResponse.json({
 					valid: true,
@@ -134,10 +142,18 @@ export async function GET(req: NextRequest) {
 				}, { status: 200 });
 			}
 
-			if (session.status === "GATE_IN" || session.status === "LOADING") {
+			if (session.status === "GATE_IN" || session.status === "LOADING" || session.status === "LOADING_COMPLETED") {
 				updatedSession = await prisma.loadSession.update({
 					where: { id: session.id },
 					data: { status: "GATE_OUT", gateOutAt: now },
+					include: {
+						order: {
+							include: {
+								driver: true,
+								vehicle: true,
+							},
+						},
+					},
 				});
 				transition = "GATE_OUT";
 			} else {
