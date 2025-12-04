@@ -160,7 +160,7 @@ const DropdownMenuItem = React.forwardRef<
             onClick={(e) => {
                 props.onClick?.(e)
                 if (!e.defaultPrevented) {
-                    setOpen(false)
+                    setTimeout(() => setOpen(false), 0)
                 }
             }}
             {...props}

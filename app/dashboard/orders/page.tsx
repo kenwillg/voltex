@@ -59,6 +59,11 @@ export default function OrdersPage() {
   const [qrError, setQrError] = useState<string | null>(null);
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  const [spaOpen, setSpaOpen] = useState(false);
+  const [spaOrder, setSpaOrder] = useState<Order | null>(null);
+
+  const [repeatOrderData, setRepeatOrderData] = useState<Order | null>(null);
+
   const mapOrderFromApi = (order: any): Order => {
     const schedule = new Date(order.scheduledAt);
     const destinationName = order.spbu?.name || order.destination?.destinationName || "-";
@@ -217,6 +222,10 @@ export default function OrdersPage() {
   // --- QR helpers ---
   const openQrForOrder = async (order: Order) => {
     if (!order.id) return;
+    // Close SPA modal if open
+    setSpaOpen(false);
+    setSpaOrder(null);
+
     setQrOrder(order);
     setQrOpen(true);
     setQrLoading(true);
@@ -248,6 +257,29 @@ export default function OrdersPage() {
     setQrOrder(null);
     setQrValue(null);
     setQrError(null);
+  };
+
+  const openSpaForOrder = (order: Order) => {
+    if (!order.spaPdfPath) return;
+    // Close QR modal if open
+    setQrOpen(false);
+    setQrOrder(null);
+    setQrValue(null);
+    setQrError(null);
+
+    setSpaOrder(order);
+    setSpaOpen(true);
+  };
+
+  const closeSpaModal = () => {
+    setSpaOpen(false);
+    setSpaOrder(null);
+  };
+
+  const downloadSpaPdf = () => {
+    if (!spaOrder?.spaPdfPath) return;
+    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${spaOrder.spaPdfPath}`;
+    window.open(url, '_blank');
   };
 
   const downloadQrImage = async (url: string, filename: string) => {
@@ -296,12 +328,13 @@ export default function OrdersPage() {
 
   const handleAddOrder = async (newOrder: Order) => {
     setIsSaving(true);
-    setSystemMessage("Membuat SPA, harap tunggu...");
+    setSystemMessage("Sending data...");
     const vehicleId = newOrder.vehicleId || vehicleOptions.find((vehicle) => vehicle.meta?.licensePlate === newOrder.licensePlate)?.value;
     const driverId = newOrder.driverDbId || driverOptions.find((driver) => driver.meta?.driverCode === newOrder.driverId)?.value;
     const spbuId = newOrder.spbuId || (spbuOptions[0]?.value as string);
 
     try {
+      setSystemMessage("Generating SPA...");
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -321,6 +354,9 @@ export default function OrdersPage() {
       if (!res.ok) {
         throw new Error("Create order failed");
       }
+
+      setSystemMessage("Sending an Email...");
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       await refreshOrders();
       setSystemMessage("Order berhasil dibuat.");
@@ -406,60 +442,45 @@ export default function OrdersPage() {
     {
       key: "actions",
       label: "Actions",
-      render: (_value: unknown, record: Order) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger className="flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground">
-            <MoreHorizontal className="h-4 w-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>Order Actions</DropdownMenuLabel>
-            <DropdownMenuSeparator />
+      render: (_value: unknown, record: Order) => {
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              <MoreHorizontal className="h-4 w-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Order Actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
 
-            <DropdownMenuItem onClick={() => openQrForOrder(record)}>
-              <QrCode className="mr-2 h-4 w-4" />
-              <span>Show QR Code</span>
-            </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                openQrForOrder(record);
+              }}>
+                <QrCode className="mr-2 h-4 w-4" />
+                <span>Show QR Code</span>
+              </DropdownMenuItem>
 
-            {record.spaPdfPath ? (
-              <DropdownMenuItem asChild>
-                <a
-                  href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${record.spaPdfPath}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
+              {record.spaPdfPath ? (
+                <DropdownMenuItem onClick={() => {
+                  openSpaForOrder(record);
+                }}>
                   <FileText className="mr-2 h-4 w-4" />
                   <span>View SPA</span>
-                </a>
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem className="pointer-events-none opacity-50">
-                <FileText className="mr-2 h-4 w-4" />
-                <span>View SPA PDF</span>
-              </DropdownMenuItem>
-            )}
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem className="pointer-events-none opacity-50">
+                  <FileText className="mr-2 h-4 w-4" />
+                  <span>View SPA PDF</span>
+                </DropdownMenuItem>
+              )}
 
-            <AddOrderForm
-              onAddOrder={handleAddOrder}
-              onRepeatOrder={handleRepeatOrder}
-              existingOrder={record}
-              productOptions={productOptions}
-              driverOptions={driverOptions}
-              vehicleOptions={vehicleOptions}
-              spbuOptions={spbuOptions}
-              loading={isSaving}
-              customTrigger={
-                <button
-                  type="button"
-                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  <span>Repeat Order</span>
-                </button>
-              }
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )
+              <DropdownMenuItem onClick={() => setRepeatOrderData(record)}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                <span>Repeat Order</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      }
     }
   ];
 
@@ -507,8 +528,47 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {spaOpen && spaOrder?.spaPdfPath && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60" onClick={closeSpaModal}>
+          <div className="w-full max-w-4xl h-[90vh] rounded-3xl bg-background p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">
+                  Surat Perintah Angkut
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  {spaOrder.spNumber} · {spaOrder.driverId}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={downloadSpaPdf}
+                  className="rounded-full px-3 py-1 text-xs text-primary hover:bg-primary/10 flex items-center gap-1"
+                >
+                  <Download className="h-3 w-3" />
+                  Download
+                </button>
+                <button
+                  onClick={closeSpaModal}
+                  className="rounded-full px-3 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="h-[calc(100%-60px)] rounded-2xl border border-border overflow-hidden">
+              <iframe
+                src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${spaOrder.spaPdfPath}`}
+                className="w-full h-full"
+                title="SPA PDF Viewer"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {qrOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
           <div className="w-full max-w-md rounded-3xl bg-background p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <div>
@@ -565,6 +625,20 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
+
+      {/* Repeat Order Modal */}
+      <AddOrderForm
+        isOpen={!!repeatOrderData}
+        onClose={() => setRepeatOrderData(null)}
+        onAddOrder={handleAddOrder}
+        onRepeatOrder={handleRepeatOrder}
+        existingOrder={repeatOrderData}
+        productOptions={productOptions}
+        driverOptions={driverOptions}
+        vehicleOptions={vehicleOptions}
+        spbuOptions={spbuOptions}
+        loading={isSaving}
+      />
     </div>
   );
 }

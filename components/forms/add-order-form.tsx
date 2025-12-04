@@ -37,6 +37,8 @@ interface AddOrderFormProps {
   productOptions?: Array<{ id?: string; name: string } | string>;
   loading?: boolean;
   customTrigger?: React.ReactNode;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 function AddOrderForm({
@@ -49,8 +51,16 @@ function AddOrderForm({
   productOptions = [],
   loading = false,
   customTrigger,
+  isOpen: externalIsOpen,
+  onClose: externalOnClose,
 }: AddOrderFormProps) {
-  const { isOpen, open, close } = useModal();
+  const { isOpen: internalIsOpen, open: internalOpen, close: internalClose } = useModal();
+
+  const isControlled = externalIsOpen !== undefined;
+  const isOpen = isControlled ? externalIsOpen : internalIsOpen;
+  const close = isControlled ? (externalOnClose || (() => { })) : internalClose;
+  const open = isControlled ? () => { } : internalOpen;
+
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     licensePlate: existingOrder?.licensePlate || vehicleOptions[0]?.meta?.licensePlate || "",
@@ -84,6 +94,26 @@ function AddOrderForm({
         "",
     }));
   }, [driverOptions, vehicleOptions, spbuOptions, productOptions]);
+
+  // Effect to populate form data when modal opens (controlled or uncontrolled)
+  useEffect(() => {
+    if (isOpen && existingOrder) {
+      setFormData({
+        licensePlate: existingOrder.licensePlate,
+        driverId: existingOrder.driverId,
+        driverDbId: existingOrder.driverDbId ?? "",
+        vehicleId: existingOrder.vehicleId ?? "",
+        product: existingOrder.product,
+        planned: existingOrder.plannedLiters ? String(existingOrder.plannedLiters) : "",
+        destinationName: existingOrder.destinationName,
+        destinationAddress: existingOrder.destinationAddress,
+        destinationCoords: existingOrder.destinationCoords,
+        spbuId: existingOrder.spbuId ?? "",
+        schedule: "",
+        status: "SCHEDULED"
+      });
+    }
+  }, [isOpen, existingOrder]);
 
   const generateSpNumber = (): string => {
     const today = new Date();
@@ -215,24 +245,27 @@ function AddOrderForm({
   const handleOpen = (e?: React.MouseEvent) => {
     e?.preventDefault();
     e?.stopPropagation();
-    if (existingOrder) {
-      setFormData({
-        licensePlate: existingOrder.licensePlate,
-        driverId: existingOrder.driverId,
-        driverDbId: existingOrder.driverDbId ?? "",
-        vehicleId: existingOrder.vehicleId ?? "",
-        product: existingOrder.product,
-        planned: existingOrder.plannedLiters ? String(existingOrder.plannedLiters) : "",
-        destinationName: existingOrder.destinationName,
-        destinationAddress: existingOrder.destinationAddress,
-        destinationCoords: existingOrder.destinationCoords,
-        spbuId: existingOrder.spbuId ?? "",
-        schedule: "",
-        status: "SCHEDULED"
-      });
+    if (!isControlled) {
+      // Only run this logic if uncontrolled, otherwise useEffect handles it
+      if (existingOrder) {
+        setFormData({
+          licensePlate: existingOrder.licensePlate,
+          driverId: existingOrder.driverId,
+          driverDbId: existingOrder.driverDbId ?? "",
+          vehicleId: existingOrder.vehicleId ?? "",
+          product: existingOrder.product,
+          planned: existingOrder.plannedLiters ? String(existingOrder.plannedLiters) : "",
+          destinationName: existingOrder.destinationName,
+          destinationAddress: existingOrder.destinationAddress,
+          destinationCoords: existingOrder.destinationCoords,
+          spbuId: existingOrder.spbuId ?? "",
+          schedule: "",
+          status: "SCHEDULED"
+        });
+      }
+      // Small delay to ensure dropdown closes properly
+      setTimeout(() => open(), 10);
     }
-    // Small delay to ensure dropdown closes properly
-    setTimeout(() => open(), 10);
   };
 
   const buttonTitle = existingOrder ? "Repeat Order" : "New Order";
@@ -249,8 +282,8 @@ function AddOrderForm({
         <button
           onClick={handleOpen}
           className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition ${existingOrder
-              ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
+            ? "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+            : "bg-primary text-primary-foreground hover:bg-primary/90"
             } ${loading ? "cursor-not-allowed opacity-70" : ""}`}
           disabled={loading}
         >

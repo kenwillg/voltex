@@ -15,7 +15,7 @@ interface ModalProps {
 
 class ModalComponent extends BaseComponent {
   protected getBaseStyles(): string {
-    return "fixed inset-0 z-50 flex items-center justify-center p-4";
+    return "fixed inset-0 z-[100] flex items-center justify-center p-4";
   }
 
   getOverlayStyles(): string {
@@ -46,13 +46,13 @@ class ModalComponent extends BaseComponent {
     }
   }
 
-  public render(props: Pick<ModalProps, 'size'>): { 
-    overlayClass: string; 
+  public render(props: Pick<ModalProps, 'size'>): {
+    overlayClass: string;
     contentClass: string;
     containerClass: string;
   } {
     const { size = "md" } = props;
-    
+
     return {
       containerClass: this.getBaseStyles(),
       overlayClass: this.getOverlayStyles(),
@@ -82,7 +82,7 @@ export function Modal({ isOpen, onClose, title, children, size = "md" }: ModalPr
             <X className="h-4 w-4" />
           </button>
         </div>
-        
+
         {/* Content */}
         <div className="max-h-[calc(90vh-80px)] overflow-y-auto p-6">
           {children}
